@@ -1,0 +1,11 @@
+{
+  "id": "taiyuan",
+  "name": "太原市",
+  "shortName": "太原",
+  "regionCode": "140100",
+  "center": [112.55, 37.87],
+  "height": 145000,
+  "modules": ["station", "weather"],
+  "revision": "demo-1",
+  "source": "mock"
+}

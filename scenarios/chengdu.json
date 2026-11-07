@@ -1,0 +1,11 @@
+{
+  "id": "chengdu",
+  "name": "成都市",
+  "shortName": "成都",
+  "regionCode": "510100",
+  "center": [104.06, 30.67],
+  "height": 145000,
+  "modules": ["station", "weather"],
+  "revision": "demo-1",
+  "source": "mock"
+}

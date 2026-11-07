@@ -1,0 +1,64 @@
+name: digital-twin-visualization
+services:
+  web:
+    image: dtv-web:0.1.0
+    build:
+      context: ..
+      dockerfile: deploy/web.Dockerfile
+    ports: ["127.0.0.1:8080:80"]
+    depends_on:
+      core-api:
+        condition: service_healthy
+    volumes:
+      - ./config.json:/usr/share/nginx/html/config.json:ro
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://127.0.0.1/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+    logging: &logging
+      driver: json-file
+      options: {max-size: "10m", max-file: "3"}
+  core-api:
+    image: dtv-server:0.1.0
+    build:
+      context: ..
+      dockerfile: deploy/server.Dockerfile
+    command: ["node", "dist/server/core-api/src/main.js"]
+    environment: {HOST: "0.0.0.0", PORT: "3001", DEPLOYMENT_MODE: "demo"}
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3001/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+    logging: *logging
+  worker:
+    image: dtv-server:0.1.0
+    command: ["node", "dist/server/worker/src/main.js"]
+    environment:
+      DATABASE_URL: postgresql://dtv:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in deploy/.env}@postgres:5432/dtv
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+    logging: *logging
+  postgres:
+    image: postgis/postgis:16-3.5
+    environment:
+      POSTGRES_USER: dtv
+      POSTGRES_DB: dtv
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in deploy/.env}
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      - ./migrations:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U dtv -d dtv"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+    logging: *logging
+volumes:
+  postgres-data:

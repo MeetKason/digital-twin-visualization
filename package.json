@@ -1,0 +1,58 @@
+{
+  "name": "digital-twin-visualization",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "engines": {
+    "node": ">=22.12"
+  },
+  "scripts": {
+    "dev": "concurrently -k -n api,web \"npm run dev -w @dtv/core-api\" \"npm run dev -w @dtv/web\"",
+    "build": "npm run build:plugin && npm run build -w @dtv/web && tsup apps/core-api/src/main.ts apps/worker/src/main.ts --format esm --out-dir dist/server --splitting --sourcemap --external pg",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "lint": "eslint .",
+    "test:e2e": "playwright test",
+    "worker": "tsx apps/worker/src/main.ts",
+    "check": "npm run typecheck && npm run lint && npm test && npm run build",
+    "build:plugin": "tsup packages/plugins/src/index.ts --format esm --out-dir apps/web/public/extensions/example --external @dtv/sdk",
+    "predev": "npm run build:plugin",
+    "format": "prettier --write apps packages tests scenarios *.ts *.js *.json"
+  },
+  "dependencies": {
+    "@nestjs/common": "11.2.8",
+    "@nestjs/core": "11.2.8",
+    "@nestjs/platform-express": "11.2.8",
+    "cesium": "1.147.0",
+    "pg": "8.16.3",
+    "react": "19.2.0",
+    "react-dom": "19.2.0",
+    "reflect-metadata": "0.2.2",
+    "rxjs": "7.8.2",
+    "zod": "4.1.12"
+  },
+  "devDependencies": {
+    "@eslint/js": "9.39.1",
+    "@playwright/test": "1.56.1",
+    "@types/node": "22.19.0",
+    "@types/pg": "8.15.6",
+    "@types/react": "19.2.2",
+    "@types/react-dom": "19.2.2",
+    "@vitejs/plugin-react": "4.7.0",
+    "concurrently": "9.2.1",
+    "eslint": "9.39.1",
+    "globals": "16.5.0",
+    "prettier": "3.6.2",
+    "tsup": "8.5.0",
+    "tsx": "4.20.6",
+    "typescript": "5.9.3",
+    "typescript-eslint": "8.46.3",
+    "vite": "6.4.5",
+    "vite-plugin-static-copy": "3.1.4",
+    "vitest": "3.2.4"
+  }
+}
