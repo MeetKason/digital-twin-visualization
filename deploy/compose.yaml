@@ -1,7 +1,7 @@
 name: digital-twin-visualization
 services:
   web:
-    image: dtv-web:0.1.0
+    image: dtv-web:0.2.0
     build:
       context: ..
       dockerfile: deploy/web.Dockerfile
@@ -21,12 +21,29 @@ services:
       driver: json-file
       options: {max-size: "10m", max-file: "3"}
   core-api:
-    image: dtv-server:0.1.0
+    image: dtv-server:0.2.0
     build:
       context: ..
       dockerfile: deploy/server.Dockerfile
     command: ["node", "dist/server/core-api/src/main.js"]
-    environment: {HOST: "0.0.0.0", PORT: "3001", DEPLOYMENT_MODE: "demo"}
+    environment:
+      HOST: "0.0.0.0"
+      PORT: "3001"
+      DEPLOYMENT_MODE: "demo"
+      PGHOST: postgres
+      PGPORT: "5432"
+      PGDATABASE: dtv
+      PGUSER: dtv
+      PGPASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in deploy/.env}
+      AUTH_USERS_FILE: ${AUTH_USERS_FILE:-}
+      DEMO_ENABLED: ${DEMO_ENABLED:-true}
+      COOKIE_SECURE: ${COOKIE_SECURE:-false}
+      TRUST_PROXY_HOPS: "1"
+    volumes:
+      - ./auth:/run/dtv-auth:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3001/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
@@ -35,10 +52,14 @@ services:
       retries: 3
     logging: *logging
   worker:
-    image: dtv-server:0.1.0
+    image: dtv-server:0.2.0
     command: ["node", "dist/server/worker/src/main.js"]
     environment:
-      DATABASE_URL: postgresql://dtv:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in deploy/.env}@postgres:5432/dtv
+      PGHOST: postgres
+      PGPORT: "5432"
+      PGDATABASE: dtv
+      PGUSER: dtv
+      PGPASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in deploy/.env}
     depends_on:
       postgres:
         condition: service_healthy

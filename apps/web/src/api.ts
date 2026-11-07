@@ -21,8 +21,11 @@ export const api = {
     get<LayerDescriptor[]>(`/scenes/${id}/layers`, signal),
   stations: (id: string, signal?: AbortSignal) =>
     get<Station[]>(`/scenes/${id}/stations`, signal),
-  times: (id: string, signal?: AbortSignal) =>
-    get<string[]>(`/layers/${id}/times`, signal),
+  times: (id: string, sceneId: string, signal?: AbortSignal) =>
+    get<string[]>(
+      `/layers/${id}/times?${new URLSearchParams({ sceneId })}`,
+      signal,
+    ),
   data: (id: string, sceneId: string, time: string, signal?: AbortSignal) =>
     get<DataFrame>(
       `/layers/${id}/data?${new URLSearchParams({ sceneId, time })}`,
@@ -49,3 +52,57 @@ export async function runtimeConfig(): Promise<RuntimeConfig> {
   if (!r.ok) throw new Error("无法读取地图配置");
   return r.json();
 }
+
+export interface SessionUser {
+  id: string;
+  tenantId: string;
+  role: "admin" | "editor" | "viewer";
+  scenes: string[];
+  kind: "account" | "demo";
+}
+export interface BusinessRevision {
+  revision: number;
+  data: import("@dtv/contracts").BusinessData;
+  owner: { id: string; tenantId: string };
+}
+export async function mutation<T>(
+  url: string,
+  method: string,
+  body?: unknown,
+): Promise<T> {
+  const response = await fetch(`/api${url}`, {
+    method,
+    credentials: "same-origin",
+    headers: {
+      "X-DTV-Request": "1",
+      ...(body ? { "Content-Type": "application/json" } : {}),
+    },
+    body: body ? JSON.stringify(body) : undefined,
+  });
+  if (!response.ok) {
+    const error = await response
+      .json()
+      .catch(() => ({ message: "服务不可用" }));
+    throw new Error(
+      `${response.status === 409 ? "保存冲突：" : ""}${error.message ?? "请求失败"}`,
+    );
+  }
+  return response.json();
+}
+export const authApi = {
+  session: () =>
+    get<{ user: SessionUser | null; demoEnabled: boolean }>("/auth/session"),
+  demo: () => mutation<{ user: SessionUser }>("/auth/demo", "POST"),
+  login: (username: string, password: string) =>
+    mutation<{ user: SessionUser }>("/auth/login", "POST", {
+      username,
+      password,
+    }),
+  logout: () => mutation("/auth/logout", "POST"),
+};
+export const businessApi = {
+  get: (scene: string, signal?: AbortSignal) =>
+    get<BusinessRevision>(`/scenes/${scene}/business`, signal),
+  put: (scene: string, state: BusinessRevision) =>
+    mutation<BusinessRevision>(`/scenes/${scene}/business`, "PUT", state),
+};

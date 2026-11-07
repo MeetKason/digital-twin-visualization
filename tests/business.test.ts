@@ -133,3 +133,40 @@ it("CSV 导出防止公式解释且保留引号", async () => {
   expect(csvCell("=1+1")).toBe('"\'=1+1"');
   expect(csvCell('测试"站')).toBe('"测试""站"');
 });
+
+it("业务契约拒绝重复编码和不存在的模型引用", async () => {
+  const { parseBusinessData } = await import(
+    "../packages/contracts/src/business"
+  );
+  const station = {
+    id: "A",
+    name: "A",
+    sceneId: "xian",
+    lon: 108,
+    lat: 34,
+    elevationM: 1,
+    type: "国家有人站",
+    source: "mock",
+  };
+  const state = {
+    version: 1,
+    stations: [station],
+    plans: [],
+    assets: [],
+    bookmarks: [],
+    users: [],
+  };
+  expect(parseBusinessData(state, "xian").stations).toHaveLength(1);
+  expect(() =>
+    parseBusinessData(
+      { ...state, stations: [station, { ...station }] },
+      "xian",
+    ),
+  ).toThrow("重复");
+  expect(() =>
+    parseBusinessData(
+      { ...state, stations: [{ ...station, modelId: "missing" }] },
+      "xian",
+    ),
+  ).toThrow("模型");
+});

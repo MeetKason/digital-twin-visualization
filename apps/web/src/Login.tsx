@@ -1,6 +1,31 @@
 import { useState } from "react";
-export function Login({ onEnter }: { onEnter: () => void }) {
-  const [message, setMessage] = useState("");
+import { authApi } from "./api";
+export function Login({
+  onEnter,
+  demoEnabled,
+  initialMessage,
+}: {
+  onEnter: () => void;
+  demoEnabled: boolean;
+  initialMessage: string;
+}) {
+  const [message, setMessage] = useState(initialMessage);
+  const [username, setUsername] = useState(""),
+    [password, setPassword] = useState(""),
+    [busy, setBusy] = useState(false);
+  async function submit(demo = false) {
+    setBusy(true);
+    setMessage("");
+    try {
+      if (demo) await authApi.demo();
+      else await authApi.login(username, password);
+      onEnter();
+    } catch (e) {
+      setMessage((e as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  }
   return (
     <main className="login-page">
       <div className="login-background" aria-hidden="true">
@@ -13,26 +38,52 @@ export function Login({ onEnter }: { onEnter: () => void }) {
         <p className="english-name">Digital Twin Visualization</p>
         <div className="login-field">
           <img src="/design/35798.svg" alt="" />
-          <input aria-label="演示账号" value="demo · 演示用户" readOnly />
+          <input
+            aria-label="账号"
+            placeholder="请输入账号"
+            value={username}
+            onChange={(e) => setUsername(e.target.value)}
+            autoComplete="username"
+          />
         </div>
         <div className="login-field">
           <img src="/design/2cecb.svg" alt="" />
-          <span>演示环境，无需输入生产凭据</span>
+          <input
+            aria-label="密码"
+            type="password"
+            placeholder="请输入密码"
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            autoComplete="current-password"
+          />
         </div>
-        <button className="primary login-submit" onClick={onEnter}>
-          进入演示系统
+        <button
+          className="primary login-submit"
+          disabled={busy || !username || !password}
+          onClick={() => void submit()}
+        >
+          登录
         </button>
+        {demoEnabled && (
+          <button
+            className="login-submit"
+            disabled={busy}
+            onClick={() => void submit(true)}
+          >
+            进入演示系统
+          </button>
+        )}
         <button
           className="text-button"
           onClick={() =>
             setMessage(
-              "当前为本地演示入口。正式账号与密码找回由部署单位接入身份服务。",
+              "账号由部署管理员通过服务端配置开通。密码不保存在浏览器。演示入口使用独立演示租户。",
             )
           }
         >
           账号与访问说明
         </button>
-        <p className="login-note">本地演示 · 示例数据 · 非业务实况</p>
+        <p className="login-note">服务器会话 · 示例气象数据 · 非业务实况</p>
         {message && (
           <p role="status" className="access-note">
             {message}

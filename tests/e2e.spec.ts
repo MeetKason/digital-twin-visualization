@@ -62,6 +62,7 @@ test("登录、地图、图层、透明度、搜索、时次和地区切换", as
   expect(external).toEqual([]);
 });
 test("API 拒绝未知场景和缺失时次", async ({ request }) => {
+  await request.post("/api/auth/demo", { headers: { "X-DTV-Request": "1" } });
   expect((await request.get("/api/scenes/invalid/layers")).status()).toBe(404);
   expect(
     (
@@ -155,8 +156,8 @@ test("按菜单：工具书签、漫游方案、点位录入与刷新、专题�
   await page.getByPlaceholder("搜索图层 / 站点 / 坐标").fill("QA-001");
   await expect(page.getByRole("button", { name: /新增验收站/ })).toBeVisible();
   await page.screenshot({ path: "test-results/menu-map-search.png" });
+  await expect(page.getByText("服务端已保存", { exact: true })).toBeVisible();
   await page.reload();
-  await page.getByRole("button", { name: "进入演示系统" }).click();
   await page
     .locator(".side-navigation")
     .getByRole("button", { name: "点位管理" })
@@ -288,13 +289,11 @@ test("本地模型上传、实际预览、引用保护与场景隔离", async ({
   await page.getByRole("button", { name: "上传/绑定", exact: true }).click();
   const modal = page.getByRole("dialog", { name: "管理/上传模型" });
   await modal.getByLabel("模型名称", { exact: true }).fill("验收模型");
-  await modal
-    .getByLabel("模型文件（GLB / GLTF）")
-    .setInputFiles({
-      name: "triangle.gltf",
-      mimeType: "model/gltf+json",
-      buffer: Buffer.from(JSON.stringify(gltf)),
-    });
+  await modal.getByLabel("模型文件（GLB / GLTF）").setInputFiles({
+    name: "triangle.gltf",
+    mimeType: "model/gltf+json",
+    buffer: Buffer.from(JSON.stringify(gltf)),
+  });
   await modal.getByRole("button", { name: "登记模型", exact: true }).click();
   await expect(modal.getByText("验收模型", { exact: true })).toBeVisible();
   await modal.getByRole("button", { name: "地图预览", exact: true }).click();
@@ -317,4 +316,13 @@ test("本地模型上传、实际预览、引用保护与场景隔离", async ({
   await page.getByRole("button", { name: "上传/绑定", exact: true }).click();
   await expect(modal.getByText("验收模型", { exact: true })).toHaveCount(0);
   expect(errors).toEqual([]);
+});
+
+test("开发文件服务不得暴露服务端私有存储", async ({ request }) => {
+  const { resolve } = await import("node:path");
+  const path = resolve("apps/core-api/.data/platform.json");
+  expect((await request.get("/@fs" + path)).status()).toBe(403);
+  expect(
+    (await request.get("/@fs" + path.replace("/.data/", "/.DATA/"))).status(),
+  ).toBe(403);
 });

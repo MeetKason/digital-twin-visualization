@@ -1,54 +1,139 @@
-import { parseBusinessData } from "@dtv/contracts";
-import { useEffect, useState } from "react";
-import type { BusinessData, Station } from "@dtv/contracts";
+import { parseBusinessData, type BusinessData } from "@dtv/contracts";
+import { useEffect, useRef, useState } from "react";
+import { businessApi, type BusinessRevision } from "../api";
 const empty = (): BusinessData => ({
   version: 1,
   stations: [],
   bookmarks: [],
   assets: [],
   plans: [],
-  users: [{ id: "demo", name: "演示用户", role: "管理员", enabled: true }],
+  users: [],
 });
-export function useBusiness(sceneId: string, stations: Station[]) {
+export function useBusiness(sceneId: string) {
   const [data, setData] = useState<BusinessData>(empty),
-    [error, setError] = useState("");
+    [error, setError] = useState(""),
+    [status, setStatus] = useState("正在加载服务端资料"),
+    [legacy, setLegacy] = useState(false);
+  const ref = useRef<BusinessRevision | null>(null),
+    confirmed = useRef<BusinessRevision | null>(null),
+    queue = useRef<Promise<void>>(Promise.resolve()),
+    alive = useRef(true),
+    blocked = useRef(false),
+    pending = useRef(0);
   useEffect(() => {
-    if (!stations.length) return;
-    try {
-      const raw = localStorage.getItem(`dtv:business:v1:${sceneId}`);
-      if (raw) {
-        const stored = parseBusinessData(JSON.parse(raw), sceneId);
-        setData(stored);
-      } else
-        setData({
-          ...empty(),
-          stations: stations.map((s, i) => ({
-            ...s,
-            type: i % 3 === 0 ? "雷达站" : i % 2 ? "国家无人站" : "国家有人站",
-            status: "运行正常",
-          })),
-        });
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "本地资料读取失败");
-      setData({ ...empty(), stations });
-    }
-  }, [sceneId, stations]);
-  function update(change: (old: BusinessData) => BusinessData) {
-    setData((old) => {
-      const next = change(old);
-      try {
-        localStorage.setItem(
-          `dtv:business:v1:${sceneId}`,
-          JSON.stringify(next),
+    alive.current = true;
+    const ctrl = new AbortController();
+    void businessApi
+      .get(sceneId, ctrl.signal)
+      .then((state) => {
+        ref.current = state;
+        confirmed.current = state;
+        setData(state.data);
+        setStatus("服务端资料已加载");
+        setLegacy(
+          !!localStorage.getItem(`dtv:business:v1:${sceneId}`) &&
+            state.revision === 0,
         );
-        setError("");
-      } catch {
-        setError("本地存储失败，请导出资料或清理空间");
+      })
+      .catch((e) => {
+        if (!ctrl.signal.aborted) {
+          setError(e.message);
+          setStatus("加载失败");
+        }
+      });
+    return () => {
+      alive.current = false;
+      ctrl.abort();
+    };
+  }, [sceneId]);
+  useEffect(() => {
+    const prevent = (e: BeforeUnloadEvent) => {
+      if (pending.current > 0) {
+        e.preventDefault();
+        e.returnValue = "";
       }
-      return next;
-    });
+    };
+    window.addEventListener("beforeunload", prevent);
+    return () => window.removeEventListener("beforeunload", prevent);
+  }, []);
+  function update(change: (old: BusinessData) => BusinessData) {
+    if (!ref.current || blocked.current) {
+      setError("资料未加载或保存已失败，请先重新加载");
+      return;
+    }
+    let next: BusinessData;
+    try {
+      next = parseBusinessData(change(ref.current.data), sceneId);
+    } catch {
+      setError("字段不完整或包含无效数字，未保存");
+      return;
+    }
+    const scope = ref.current.owner;
+    ref.current = { ...ref.current, data: next };
+    setData(next);
+    setStatus("正在保存到服务端…");
+    pending.current++;
+    queue.current = queue.current
+      .then(async () => {
+        if (blocked.current) return;
+        try {
+          const response = await businessApi.put(sceneId, {
+            revision: confirmed.current!.revision,
+            owner: scope,
+            data: next,
+          });
+          confirmed.current = { ...response, owner: scope };
+          if (alive.current) {
+            setError("");
+            if (pending.current === 1) setStatus("服务端已保存");
+          }
+        } catch (e) {
+          blocked.current = true;
+          if (alive.current) {
+            setError(`${(e as Error).message}；本次未保存，请重新加载后重试`);
+            setStatus("保存失败");
+            if (confirmed.current) {
+              ref.current = confirmed.current;
+              setData(confirmed.current.data);
+            }
+          }
+        } finally {
+          pending.current--;
+        }
+      })
+      .then(() => {
+        if (blocked.current && pending.current > 0) pending.current = 0;
+      });
   }
-  return { data, update, error };
+  async function reload() {
+    try {
+      await queue.current;
+      const state = await businessApi.get(sceneId);
+      ref.current = state;
+      confirmed.current = state;
+      blocked.current = false;
+      setData(state.data);
+      setError("");
+      setStatus("服务端资料已加载");
+    } catch (e) {
+      setError((e as Error).message);
+    }
+  }
+  function migrateLocal() {
+    try {
+      const value = parseBusinessData(
+        JSON.parse(
+          localStorage.getItem(`dtv:business:v1:${sceneId}`) ?? "null",
+        ),
+        sceneId,
+      );
+      update(() => value);
+      setLegacy(false);
+    } catch {
+      setError("本地资料校验失败，原资料未删除");
+    }
+  }
+  return { data, update, error, status, reload, legacy, migrateLocal, sceneId };
 }
 export type Business = ReturnType<typeof useBusiness>;
 export function download(

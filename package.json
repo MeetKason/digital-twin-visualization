@@ -1,6 +1,6 @@
 {
   "name": "digital-twin-visualization",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
   "type": "module",
   "workspaces": [
@@ -22,7 +22,8 @@
     "build:plugin": "tsup packages/plugins/src/index.ts --format esm --out-dir apps/web/public/extensions/example --external @dtv/sdk",
     "predev": "npm run build:plugin",
     "format": "prettier --write apps packages tests scenarios *.ts *.js *.json",
-    "smoke:built": "node scripts/smoke-built.mjs"
+    "smoke:built": "node scripts/smoke-built.mjs",
+    "test:postgres": "tsx scripts/verify-postgres.ts"
   },
   "dependencies": {
     "@nestjs/common": "11.2.8",

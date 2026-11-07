@@ -1,9 +1,14 @@
 import { Pool } from "pg";
 import { IngestRunner, MockConnector, MemoryStore } from "./index";
 import { PostgresStore } from "./postgres";
-const pool = process.env.DATABASE_URL
-  ? new Pool({ connectionString: process.env.DATABASE_URL })
-  : null;
+const pool =
+  process.env.DATABASE_URL || process.env.PGHOST
+    ? new Pool(
+        process.env.DATABASE_URL
+          ? { connectionString: process.env.DATABASE_URL }
+          : undefined,
+      )
+    : null;
 const runner = new IngestRunner(
   new MockConnector(),
   pool ? new PostgresStore(pool) : new MemoryStore(),

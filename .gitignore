@@ -8,3 +8,10 @@ playwright-report/
 *.dump
 
 !package-lock.json
+
+.data/
+
+deploy/auth/*.json
+
+deploy/auth/*
+!deploy/auth/.gitkeep

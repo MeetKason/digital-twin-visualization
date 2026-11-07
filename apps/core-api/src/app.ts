@@ -1,39 +1,187 @@
 import "reflect-metadata";
-import { Controller, Get, Module, Param, Query } from "@nestjs/common";
-import { DemoService } from "./service";
+import {
+  Controller,
+  Get,
+  Post,
+  Put,
+  Body,
+  Module,
+  Param,
+  Query,
+  Req,
+  Res,
+  ForbiddenException,
+} from "@nestjs/common";
+import type { ServerResponse } from "node:http";
+import {
+  platform,
+  sessionToken,
+  writeBoundary,
+  type Request,
+} from "./platform/platform";
 @Controller("api")
 class ApiController {
-  private service = new DemoService();
-  @Get("health") health() {
+  private p = platform();
+  private cookie(res: ServerResponse, token: string) {
+    res.setHeader(
+      "Set-Cookie",
+      `dtv_session=${token}; Path=/; HttpOnly; SameSite=Strict; Max-Age=${token ? 28800 : 0}${process.env.COOKIE_SECURE === "true" ? "; Secure" : ""}`,
+    );
+    res.setHeader("Cache-Control", "no-store");
+  }
+  @Get("health") async health() {
+    await this.p.ready();
     return {
       status: "ok",
-      mode: "demo",
-      version: "0.1.0",
-      authentication: "demo-only",
+      mode: "development",
+      version: "0.2.0",
+      authentication: "server-session",
+      storage:
+        process.env.DATABASE_URL || process.env.PGHOST
+          ? "postgresql"
+          : "development-file",
     };
   }
-  @Get("scenes") scenes() {
-    return this.service.scenes();
+  @Get("auth/session") async session(
+    @Req() req: Request,
+    @Res({ passthrough: true }) res: ServerResponse,
+  ) {
+    res.setHeader("Cache-Control", "no-store");
+    return {
+      user: await this.p.auth.resolve(sessionToken(req)),
+      demoEnabled:
+        process.env.DEMO_ENABLED !== "false" &&
+        process.env.DEPLOYMENT_MODE !== "production",
+    };
   }
-  @Get("scenes/:id/layers") layers(@Param("id") id: string) {
-    return this.service.layers(id);
+  @Post("auth/demo") async demo(
+    @Req() req: Request,
+    @Res({ passthrough: true }) res: ServerResponse,
+  ) {
+    writeBoundary(req);
+    const current = await this.p.auth.resolve(sessionToken(req));
+    if (current) return { user: current };
+    const { token, user } = await this.p.auth.demo();
+    this.cookie(res, token);
+    return { user };
   }
-  @Get("scenes/:id/stations") stations(@Param("id") id: string) {
-    return this.service.stations(id);
+  @Post("auth/login") async login(
+    @Req() req: Request,
+    @Res({ passthrough: true }) res: ServerResponse,
+    @Body() body: { username: string; password: string },
+  ) {
+    writeBoundary(req);
+    const { token, user } = await this.p.auth.login(
+      body?.username,
+      body?.password,
+      req.ip ?? req.socket.remoteAddress ?? "unknown",
+    );
+    await this.p.auth.logout(sessionToken(req));
+    this.cookie(res, token);
+    return { user };
   }
-  @Get("layers/:id/times") times(@Param("id") id: string) {
-    return this.service.times(id);
+  @Post("auth/logout") async logout(
+    @Req() req: Request,
+    @Res({ passthrough: true }) res: ServerResponse,
+  ) {
+    writeBoundary(req);
+    await this.p.auth.logout(sessionToken(req));
+    this.cookie(res, "");
+    return { ok: true };
   }
-  @Get("layers/:id/data") data(
+  @Get("scenes") async scenes(@Req() req: Request) {
+    const user = await this.p.current(req);
+    return this.p.demo.scenes().filter((s) => user.scenes.includes(s.id));
+  }
+  @Get("scenes/:id/layers") async layers(
+    @Req() req: Request,
+    @Param("id") id: string,
+  ) {
+    await this.p.access(req, id);
+    return this.p.demo.layers(id);
+  }
+  @Get("scenes/:id/stations") async stations(
+    @Req() req: Request,
+    @Param("id") id: string,
+  ) {
+    const user = await this.p.access(req, id);
+    return (await this.p.business(user, id)).data.stations;
+  }
+  @Get("scenes/:id/business") async business(
+    @Req() req: Request,
+    @Param("id") id: string,
+  ) {
+    const user = await this.p.access(req, id);
+    return this.p.business(user, id);
+  }
+  @Put("scenes/:id/business") async save(
+    @Req() req: Request,
+    @Param("id") id: string,
+    @Body() body: unknown,
+  ) {
+    const user = await this.p.access(req, id, true);
+    try {
+      return await this.p.save(user, id, body);
+    } catch (error) {
+      await this.p.repo
+        .logAudit({
+          tenantId: user.tenantId,
+          actor: user.id,
+          sceneId: id,
+          action: "business.write",
+          result: "rejected",
+        })
+        .catch(() => {});
+      throw error;
+    }
+  }
+  @Get("audit") async audit(@Req() req: Request) {
+    const user = await this.p.current(req);
+    if (user.role !== "admin")
+      throw new ForbiddenException("仅管理员可查看审计");
+    return this.p.repo.audit(user.tenantId);
+  }
+  @Get("layers/:id/times") async times(
+    @Req() req: Request,
+    @Param("id") id: string,
+    @Query("sceneId") sceneId: string,
+  ) {
+    await this.p.access(req, sceneId);
+    return this.p.demo.times(id);
+  }
+  @Get("layers/:id/data") async data(
+    @Req() req: Request,
     @Param("id") id: string,
     @Query("sceneId") sceneId: string,
     @Query("time") time: string,
   ) {
-    return this.service.data(id, sceneId, time);
+    await this.p.access(req, sceneId);
+    return this.p.demo.data(id, sceneId, time);
   }
-  @Get("search") search(@Query("sceneId") sceneId: string, @Query("q") q = "") {
-    return this.service.search(sceneId, q);
+  @Get("search") async search(
+    @Req() req: Request,
+    @Query("sceneId") sceneId: string,
+    @Query("q") q = "",
+  ) {
+    const user = await this.p.access(req, sceneId);
+    const result = this.p.demo.search(sceneId, q);
+    return {
+      ...result,
+      stations: result.coordinate
+        ? []
+        : (await this.p.business(user, sceneId)).data.stations.filter(
+            (s) => s.name.includes(q.trim()) || s.id.includes(q.trim()),
+          ),
+    };
   }
 }
-@Module({ controllers: [ApiController] })
+@Module({
+  controllers: [ApiController],
+  providers: [
+    {
+      provide: "PLATFORM_SHUTDOWN",
+      useFactory: () => ({ onApplicationShutdown: () => platform().close() }),
+    },
+  ],
+})
 export class AppModule {}

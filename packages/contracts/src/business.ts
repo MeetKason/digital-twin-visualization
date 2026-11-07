@@ -339,6 +339,35 @@ export function parseBusinessData(raw: unknown, sceneId: string): BusinessData {
   const value = businessSchema.parse(raw);
   if (value.stations.some((s) => s.sceneId !== sceneId))
     throw new Error("本地资料所属地区不匹配");
+  const unique = (items: { id: string }[], label: string) => {
+    if (new Set(items.map((i) => i.id)).size !== items.length)
+      throw new Error(`${label} ID 重复`);
+  };
+  unique(value.stations, "站点");
+  unique(value.plans, "方案");
+  unique(value.assets, "模型/附件");
+  unique(value.bookmarks, "视角");
+  unique(value.users, "用户");
+  const models = new Set(
+      value.assets.filter((a) => a.kind === "model").map((a) => a.id),
+    ),
+    bookmarks = new Set(value.bookmarks.map((b) => b.id)),
+    stations = new Set(value.stations.map((s) => s.id));
+  const refs = (item: { modelId?: string; bookmarkId?: string }) => {
+    if (item.modelId && !models.has(item.modelId))
+      throw new Error("关联模型不存在");
+    if (item.bookmarkId && !bookmarks.has(item.bookmarkId))
+      throw new Error("关联视角不存在");
+  };
+  value.stations.forEach(refs);
+  for (const plan of value.plans) {
+    unique(plan.points, "方案节点");
+    if (plan.saved) validatePlan(plan);
+    plan.points.forEach(refs);
+  }
+  for (const asset of value.assets)
+    if (asset.stationId && !stations.has(asset.stationId))
+      throw new Error("附件关联站点不存在");
   return value;
 }
 export function csvCell(value: unknown): string {

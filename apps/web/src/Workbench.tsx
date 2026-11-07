@@ -14,7 +14,7 @@ import type {
 } from "@dtv/contracts";
 import { DEMO_TIMES } from "@dtv/contracts";
 import type { LayerRuntime, MapFacade } from "@dtv/sdk";
-import { api } from "./api";
+import { api, authApi, type SessionUser } from "./api";
 import { Icon } from "./Icon";
 import { LayerPanel } from "./LayerPanel";
 import { Timeline } from "./Timeline";
@@ -40,6 +40,13 @@ const navigation = [
   ["settings", "系统管理"],
 ];
 export default function Workbench({ onExit }: { onExit: () => void }) {
+  const [profile, setProfile] = useState<SessionUser | null>(null);
+  useEffect(() => {
+    void authApi
+      .session()
+      .then((s) => setProfile(s.user))
+      .catch(() => {});
+  }, []);
   const [scenes, setScenes] = useState<SceneConfig[]>([]),
     [sceneId, setSceneId] = useState("xian"),
     [error, setError] = useState(""),
@@ -48,7 +55,12 @@ export default function Workbench({ onExit }: { onExit: () => void }) {
     const ctrl = new AbortController();
     void api
       .scenes(ctrl.signal)
-      .then(setScenes)
+      .then((list) => {
+        setScenes(list);
+        setSceneId((current) =>
+          list.some((s) => s.id === current) ? current : (list[0]?.id ?? ""),
+        );
+      })
       .catch((e) => {
         if (!ctrl.signal.aborted) setError(e.message);
       });
@@ -70,7 +82,9 @@ export default function Workbench({ onExit }: { onExit: () => void }) {
           </div>
         </div>
         <div className="header-right">
-          <span className="demo-badge">演示环境</span>
+          <span className="demo-badge">
+            {profile?.kind === "demo" ? "隔离演示租户" : "服务端会话"}
+          </span>
           <select
             aria-label="地区场景"
             value={sceneId}
@@ -93,7 +107,7 @@ export default function Workbench({ onExit }: { onExit: () => void }) {
           </time>
           <span className="header-divider" />
           <Icon name="user" />
-          <span>demo</span>
+          <span>{profile?.kind === "demo" ? "演示用户" : profile?.id}</span>
           <button className="exit" onClick={onExit}>
             退出
           </button>
@@ -128,7 +142,7 @@ function WorkArea({ scene }: { scene: SceneConfig }) {
     [station, setStation] = useState<Station | null>(null),
     [activeMenu, setActiveMenu] = useState("home"),
     [mode, setMode] = useState<"2d" | "3d">("3d");
-  const business = useBusiness(scene.id, stations);
+  const business = useBusiness(scene.id);
   const managedStations = useMemo(
     () => (business.data.stations.length ? business.data.stations : stations),
     [business.data.stations, stations],
@@ -380,6 +394,19 @@ function WorkArea({ scene }: { scene: SceneConfig }) {
             {modelError}
           </p>
         )}
+        <div className="business-sync">
+          <span role="status">{business.status}</span>
+          {business.error && (
+            <button onClick={() => void business.reload()}>
+              重新加载服务端资料
+            </button>
+          )}
+          {business.legacy && (
+            <button onClick={business.migrateLocal}>
+              迁移当前地区的本地演示资料
+            </button>
+          )}
+        </div>
         {business.error && (
           <p role="alert" className="business-storage-error">
             {business.error}

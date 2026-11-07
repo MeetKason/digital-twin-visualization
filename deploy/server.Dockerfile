@@ -8,5 +8,7 @@ WORKDIR /app
 COPY --from=build /app/dist ./dist
 COPY --from=build /app/node_modules ./node_modules
 COPY package.json ./
+RUN mkdir -p /app/.data && chown node:node /app/.data
+ENV DATA_DIR=/app/.data
 USER node
 CMD ["node", "dist/server/core-api/src/main.js"]
