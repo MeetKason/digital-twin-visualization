@@ -84,7 +84,8 @@ export function useExtensions(map: MapFacade | null) {
           manifest.coreApi !== 1
         )
           throw new Error("示例插件清单不兼容");
-        const module = (await import(/* @vite-ignore */ manifest.entry)) as {
+        const entry = new URL(manifest.entry, window.location.origin).href;
+        const module = (await import(/* @vite-ignore */ entry)) as {
           default: PlatformPlugin;
         };
         if (!alive.current) return;

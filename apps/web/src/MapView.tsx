@@ -238,6 +238,17 @@ export default function MapView({
                   e.point.color = new ConstantProperty(
                     Color.fromCssColorString("#1263c4").withAlpha(value),
                   );
+                if (e.label) {
+                  e.label.fillColor = new ConstantProperty(
+                    Color.fromCssColorString("#243244").withAlpha(value),
+                  );
+                  e.label.outlineColor = new ConstantProperty(
+                    Color.WHITE.withAlpha(value),
+                  );
+                  e.label.backgroundColor = new ConstantProperty(
+                    Color.WHITE.withAlpha(value * 0.85),
+                  );
+                }
                 if (e.polyline)
                   e.polyline.material = new ColorMaterialProperty(
                     Color.fromCssColorString("#20b5da").withAlpha(value),
@@ -245,8 +256,9 @@ export default function MapView({
               });
               v.scene.requestRender();
             },
-            setTime() {
-              /* Host reloads active layers with request cancellation on time changes. */
+            async setTime(nextTime) {
+              currentTime.current = nextTime;
+              await runtime?.toggle(id, true);
             },
             dispose() {
               if (!v.isDestroyed()) {

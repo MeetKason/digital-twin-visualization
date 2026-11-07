@@ -247,7 +247,7 @@ function WorkArea({ scene }: { scene: SceneConfig }) {
             <span>定位</span>
           </button>
         </aside>
-        {panelOpen && (
+        <div hidden={!panelOpen}>
           <LayerPanel
             layers={allLayers}
             runtime={runtime}
@@ -256,7 +256,7 @@ function WorkArea({ scene }: { scene: SceneConfig }) {
             onClose={() => setPanelOpen(false)}
             onStation={pickStation}
           />
-        )}
+        </div>
         <button
           className="map-mode"
           onClick={() => {
@@ -312,8 +312,10 @@ function WorkArea({ scene }: { scene: SceneConfig }) {
           onClose={() => setActiveMenu("home")}
         />
         <div className="map-legend">
-          <strong>气象示例色标</strong>
+          <strong>气温 °C · 示例色标</strong>
           <div className="legend-gradient" />
+          <strong>1 小时降水 mm · 示例色标</strong>
+          <div className="legend-gradient rainfall" />
           <div>
             <span>低</span>
             <span>示意分布，非分析产品</span>

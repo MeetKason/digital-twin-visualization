@@ -108,6 +108,8 @@ export interface PlatformPlugin {
 }
 export class PluginManager {
   private installing = new Set<string>();
+  private pending = new Map<string, Promise<void>>();
+  private cancelled = new Set<string>();
   private installed = new Map<string, () => void | Promise<void>>();
   constructor(private ctx: PlatformContext) {}
   ids() {
@@ -121,15 +123,29 @@ export class PluginManager {
       this.installing.has(plugin.manifest.id)
     )
       throw new Error("插件已安装");
-    this.installing.add(plugin.manifest.id);
-    try {
+    const id = plugin.manifest.id;
+    this.installing.add(id);
+    const task = (async () => {
       const cleanup = await plugin.activate(this.ctx);
-      this.installed.set(plugin.manifest.id, cleanup);
+      if (this.cancelled.has(id)) await cleanup();
+      else this.installed.set(id, cleanup);
+    })();
+    this.pending.set(id, task);
+    try {
+      await task;
     } finally {
-      this.installing.delete(plugin.manifest.id);
+      this.installing.delete(id);
+      this.cancelled.delete(id);
+      this.pending.delete(id);
     }
   }
+
   async uninstall(id: string) {
+    const task = this.pending.get(id);
+    if (task) {
+      this.cancelled.add(id);
+      await task;
+    }
     await this.installed.get(id)?.();
     this.installed.delete(id);
   }

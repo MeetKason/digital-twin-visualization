@@ -1032,3 +1032,23 @@ dd {
   line-height: 1.7;
   margin: 6px 0 0;
 }
+.legend-gradient.rainfall {
+  background: linear-gradient(
+    90deg,
+    #cee9ff,
+    #72c3eb,
+    #2e91d1,
+    #1864b0,
+    #25449b
+  );
+}
+@media (min-width: 1101px) {
+  .map-notice {
+    left: 350px;
+    max-width: calc(100% - 690px);
+    bottom: 151px;
+  }
+}
+.map-coordinates {
+  bottom: 125px;
+}

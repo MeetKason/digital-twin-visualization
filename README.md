@@ -18,6 +18,7 @@ npm run dev
 打开 http://127.0.0.1:5173 ，点击“进入演示系统”。API 在 http://127.0.0.1:3001/api/health 。演示入口不收集生产密码，不代表生产登录。默认只监听本机。
 
 ```bash
+npm run smoke:built  # 构建后 API 冒烟检查（先运行 build）
 npm run check        # 严格类型、ESLint、单元/契约测试、生产构建
 npx playwright install chromium
 npm run test:e2e     # 自动启动开发服务，验证关键链路和无公网请求

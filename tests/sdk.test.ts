@@ -102,3 +102,21 @@ it("并发安装同名插件不能重复注册", async () => {
   resolve(() => {});
   await first;
 });
+
+it("激活尚未结束时卸载，完成后必须清理且不留安装项", async () => {
+  let resolve!: (cleanup: () => void) => void;
+  const cleanup = vi.fn();
+  const manager = new PluginManager({ apiVersion: "1.0.0" } as PlatformContext);
+  const installing = manager.install({
+    manifest: { id: "slow", version: "1", coreApi: 1 },
+    activate: () =>
+      new Promise<() => void>((r) => {
+        resolve = r;
+      }),
+  });
+  const uninstalling = manager.uninstall("slow");
+  resolve(cleanup);
+  await Promise.all([installing, uninstalling]);
+  expect(manager.ids()).toEqual([]);
+  expect(cleanup).toHaveBeenCalledOnce();
+});

@@ -36,16 +36,29 @@ test("登录、地图、图层、透明度、搜索、时次和地区切换", as
   await page.getByPlaceholder("搜索图层 / 站点 / 坐标").fill("");
   await page.getByLabel("气象时次").fill("4");
   await expect(page.locator(".time-context")).toContainText("04:00");
+  await page.getByRole("button", { name: "基础图层", exact: true }).click();
   await page.getByRole("button", { name: "收起图层面板" }).click();
   await page.getByRole("button", { name: "打开图层面板" }).click();
+  await expect(page.locator('[data-layer="boundary"]')).toBeVisible();
+  await page.getByRole("button", { name: "气象要素", exact: true }).click();
   await expect(page.locator('[data-layer="temperature"]')).toHaveAttribute(
     "data-status",
     "on",
   );
+  await page.screenshot({ path: "test-results/workbench-xian.png" });
   await page.getByLabel("地区场景").selectOption("taiyuan");
   await expect(page.locator("header")).toContainText("太原市");
   await expect(page.getByText("站点观测详情")).toHaveCount(0);
+  await expect(page.getByText("未配置内网天地图")).toBeVisible();
+  await page.getByPlaceholder("搜索图层 / 站点 / 坐标").fill("太原演示站");
+  await expect(
+    page.getByRole("button", { name: /太原演示站/ }).first(),
+  ).toBeVisible();
+  await page.getByPlaceholder("搜索图层 / 站点 / 坐标").fill("");
   await page.screenshot({ path: "test-results/workbench.png" });
+  await page.setViewportSize({ width: 1366, height: 768 });
+  await expect(page.locator(".timeline")).toBeVisible();
+  await page.screenshot({ path: "test-results/workbench-1366.png" });
   expect(external).toEqual([]);
 });
 test("API 拒绝未知场景和缺失时次", async ({ request }) => {

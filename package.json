@@ -21,7 +21,8 @@
     "check": "npm run typecheck && npm run lint && npm test && npm run build",
     "build:plugin": "tsup packages/plugins/src/index.ts --format esm --out-dir apps/web/public/extensions/example --external @dtv/sdk",
     "predev": "npm run build:plugin",
-    "format": "prettier --write apps packages tests scenarios *.ts *.js *.json"
+    "format": "prettier --write apps packages tests scenarios *.ts *.js *.json",
+    "smoke:built": "node scripts/smoke-built.mjs"
   },
   "dependencies": {
     "@nestjs/common": "11.2.8",
@@ -33,7 +34,7 @@
     "react-dom": "19.2.0",
     "reflect-metadata": "0.2.2",
     "rxjs": "7.8.2",
-    "zod": "4.1.12"
+    "zod": "4.6.7"
   },
   "devDependencies": {
     "@eslint/js": "9.39.1",
@@ -43,16 +44,22 @@
     "@types/react": "19.2.2",
     "@types/react-dom": "19.2.2",
     "@vitejs/plugin-react": "4.7.0",
-    "concurrently": "9.2.1",
+    "concurrently": "9.2.5",
     "eslint": "9.39.1",
     "globals": "16.5.0",
     "prettier": "3.6.2",
     "tsup": "8.5.0",
     "tsx": "4.20.6",
     "typescript": "5.9.3",
-    "typescript-eslint": "8.46.3",
+    "typescript-eslint": "8.72.1",
     "vite": "6.4.5",
     "vite-plugin-static-copy": "3.1.4",
-    "vitest": "3.2.4"
+    "vitest": "5.1.0"
+  },
+  "overrides": {
+    "multer": "2.5.0",
+    "@typescript-eslint/typescript-estree": {
+      "minimatch": "11.0.5"
+    }
   }
 }
