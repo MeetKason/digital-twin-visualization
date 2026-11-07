@@ -1,0 +1,316 @@
+import { AsyncResourceOwner } from "./ownedResource";
+import { validateModelFile } from "./modelValidation";
+import {
+  lazy,
+  Suspense,
+  useCallback,
+  useMemo,
+  useEffect,
+  useRef,
+  useState,
+} from "react";
+import type { MapFacade, LayerRuntime } from "@dtv/sdk";
+import {
+  DEMO_TIMES,
+  type Asset,
+  type SceneConfig,
+  type Station,
+  type LayerDescriptor,
+} from "@dtv/contracts";
+import type { Business } from "./useBusiness";
+import { storeFile, readFile, deleteFile } from "./files";
+import { Modal } from "./Modal";
+export function ModelManager({
+  business,
+  lon,
+  lat,
+  height = 0,
+  onClose,
+  onChoose,
+}: {
+  business: Business;
+  map: MapFacade | null;
+  lon: number;
+  lat: number;
+  height?: number;
+  onClose: () => void;
+  onChoose?: (id: string) => void;
+}) {
+  const [modelType, setModelType] = useState("气象设施模型");
+  const [name, setName] = useState(""),
+    [file, setFile] = useState<File | null>(null),
+    [scale, setScale] = useState(1),
+    [heading, setHeading] = useState(0),
+    [error, setError] = useState(""),
+    [busy, setBusy] = useState(false);
+  const alive = useRef(true);
+  useEffect(
+    () => () => {
+      alive.current = false;
+    },
+    [],
+  );
+  const [previewAsset, setPreviewAsset] = useState<Asset | null>(null);
+  async function upload() {
+    if (!file || !name.trim()) return;
+    if (file.size > 100 * 1024 * 1024) {
+      setError("模型文件不得超过100MB");
+      return;
+    }
+    setBusy(true);
+    setError("");
+    try {
+      await validateModelFile(file);
+      if (!Number.isFinite(scale) || scale <= 0 || !Number.isFinite(heading))
+        throw new Error("缩放和朝向参数无效");
+      if (!alive.current) return;
+      const blobId = await storeFile(file);
+      if (!alive.current) {
+        await deleteFile(blobId);
+        return;
+      }
+      const asset: Asset = {
+        id: crypto.randomUUID(),
+        name: name.trim(),
+        kind: "model",
+        blobId,
+        fileName: file.name,
+        size: file.size,
+        scale,
+        modelType,
+        heading,
+      };
+      business.update((old) => ({ ...old, assets: [...old.assets, asset] }));
+      setFile(null);
+      setName("");
+      onChoose?.(asset.id);
+    } catch (e) {
+      if (alive.current) setError((e as Error).message);
+    } finally {
+      if (alive.current) setBusy(false);
+    }
+  }
+  return (
+    <Modal title="管理/上传模型" onClose={onClose}>
+      <p className="muted">
+        模型存于本浏览器，最大 100MB；正式资源服务尚未接入。
+      </p>
+      <div className="asset-list">
+        {business.data.assets
+          .filter((a) => a.kind === "model")
+          .map((a) => (
+            <div key={a.id} className="asset-row">
+              <span className="model-badge">3D</span>
+              <div>
+                <strong>{a.name}</strong>
+                <small>{a.fileName}</small>
+              </div>
+              <button onClick={() => setPreviewAsset(a)}>地图预览</button>
+              {onChoose && (
+                <button
+                  onClick={() => {
+                    onChoose(a.id);
+                    onClose();
+                  }}
+                >
+                  绑定
+                </button>
+              )}
+              <button
+                onClick={() => {
+                  if (
+                    business.data.stations.some((s) => s.modelId === a.id) ||
+                    business.data.plans.some((p) =>
+                      p.points.some((n) => n.modelId === a.id),
+                    )
+                  ) {
+                    setError("模型已被站点或方案引用，不能删除");
+                    return;
+                  }
+                  void deleteFile(a.blobId)
+                    .then(() =>
+                      business.update((old) => ({
+                        ...old,
+                        assets: old.assets.filter((x) => x.id !== a.id),
+                      })),
+                    )
+                    .catch((e) => setError(e.message));
+                }}
+              >
+                删除
+              </button>
+            </div>
+          ))}
+      </div>
+      {previewAsset && (
+        <ModelPreview
+          asset={previewAsset}
+          lon={lon}
+          lat={lat}
+          height={height}
+        />
+      )}
+      <h3>上传新模型</h3>
+      <form
+        onSubmit={(e) => {
+          e.preventDefault();
+          void upload();
+        }}
+      >
+        <label>
+          模型名称
+          <input
+            required
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+          />
+        </label>
+        <label>
+          模型文件（GLB / GLTF）
+          <input
+            required
+            type="file"
+            accept=".glb,.gltf"
+            onChange={(e) => setFile(e.target.files?.[0] ?? null)}
+          />
+        </label>
+        <label>
+          模型类型
+          <select
+            value={modelType}
+            onChange={(e) => setModelType(e.target.value)}
+          >
+            <option>气象设施模型</option>
+            <option>建筑模型</option>
+            <option>其他模型</option>
+          </select>
+        </label>
+        <div className="form-grid">
+          <label>
+            缩放比例
+            <input
+              type="number"
+              min=".001"
+              step=".001"
+              value={scale}
+              onChange={(e) => setScale(Number(e.target.value))}
+            />
+          </label>
+          <label>
+            模型朝向(°)
+            <input
+              type="number"
+              value={heading}
+              onChange={(e) => setHeading(Number(e.target.value))}
+            />
+          </label>
+        </div>
+        {error && (
+          <p role="alert" className="error-text">
+            {error}
+          </p>
+        )}
+        <button className="primary" disabled={busy}>
+          {busy ? "正在保存…" : "登记模型"}
+        </button>
+      </form>
+    </Modal>
+  );
+}
+
+const PreviewMap = lazy(() => import("../MapView"));
+const noLayers: LayerDescriptor[] = [],
+  noStations: Station[] = [];
+const ignoreStation = () => {};
+function ModelPreview({
+  asset,
+  lon,
+  lat,
+  height,
+}: {
+  asset: Asset;
+  lon: number;
+  lat: number;
+  height: number;
+}) {
+  const [map, setMap] = useState<MapFacade | null>(null),
+    [error, setError] = useState("");
+  const owner = useRef(new AsyncResourceOwner());
+  const ready = useCallback(
+    (_runtime: LayerRuntime, facade: MapFacade) => setMap(facade),
+    [],
+  );
+  const scene = useMemo<SceneConfig>(
+    () => ({
+      id: "model-preview",
+      name: "模型预览",
+      shortName: "3D",
+      regionCode: "",
+      center: [lon, lat],
+      height: Math.max(3000, height + 3000),
+      modules: [],
+      revision: "demo",
+      source: "mock",
+    }),
+    [lon, lat, height],
+  );
+  useEffect(() => {
+    const resource = owner.current;
+    return () => resource.dispose();
+  }, []);
+  useEffect(() => {
+    if (!map) return;
+    let active = true;
+    void owner.current
+      .replace(async (current) => {
+        const blob = await readFile(asset.blobId);
+        if (!current()) return;
+        const url = URL.createObjectURL(blob);
+        try {
+          const remove = map.placeModel?.(
+            url,
+            lon,
+            lat,
+            height,
+            asset.scale ?? 1,
+            asset.heading ?? 0,
+          );
+          return () => {
+            remove?.();
+            URL.revokeObjectURL(url);
+          };
+        } catch (e) {
+          URL.revokeObjectURL(url);
+          throw e;
+        }
+      })
+      .catch((e) => {
+        if (active) setError(e.message);
+      });
+    return () => {
+      active = false;
+    };
+  }, [map, asset, lon, lat, height]);
+  return (
+    <>
+      <h3>模型预览 · {asset.name}</h3>
+      <div className="model-preview-canvas" aria-label="模型三维预览">
+        <Suspense fallback={<p>加载预览…</p>}>
+          <PreviewMap
+            scene={scene}
+            stations={noStations}
+            layers={noLayers}
+            time={DEMO_TIMES[12]}
+            onReady={ready}
+            onStation={ignoreStation}
+          />
+        </Suspense>
+      </div>
+      {error && (
+        <p role="alert" className="error-text">
+          {error}
+        </p>
+      )}
+    </>
+  );
+}

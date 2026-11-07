@@ -150,3 +150,44 @@ export class PluginManager {
     this.installed.delete(id);
   }
 }
+
+export interface CruiseProgress {
+  index: number;
+  phase: "transition" | "orbit";
+  state: "playing" | "paused" | "stopped" | "complete";
+  fraction: number;
+}
+export interface CruiseController {
+  pause(): void;
+  resume(): void;
+  stop(): void;
+}
+export interface MapFacade {
+  showCruisePath?(points: import("@dtv/contracts").CruisePoint[]): () => void;
+  tilt?(): void;
+  rotate?(): void;
+  captureView?(): import("@dtv/contracts").CameraView;
+  restoreView?(view: import("@dtv/contracts").CameraView): void;
+  beginMeasure?(
+    kind: "distance" | "area",
+    onUpdate: (
+      points: import("@dtv/contracts").Coordinate[],
+      done: boolean,
+    ) => void,
+  ): () => void;
+  pickCoordinate?(
+    callback: (lon: number, lat: number, height: number) => void,
+  ): () => void;
+  startCruise?(
+    points: import("@dtv/contracts").CruisePoint[],
+    onProgress: (progress: CruiseProgress) => void,
+  ): CruiseController;
+  placeModel?(
+    url: string,
+    lon: number,
+    lat: number,
+    height: number,
+    scale: number,
+    heading: number,
+  ): () => void;
+}

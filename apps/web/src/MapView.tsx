@@ -1,6 +1,13 @@
 import { useEffect, useRef, useState } from "react";
 import {
   Viewer,
+  Cartographic,
+  Math as CesiumMath,
+  HeadingPitchRange,
+  Matrix4,
+  PolygonHierarchy,
+  Transforms,
+  HeadingPitchRoll,
   Color,
   Cartesian3,
   CustomDataSource,
@@ -23,6 +30,7 @@ import "cesium/Build/Cesium/Widgets/widgets.css";
 import type { SceneConfig, Station, LayerDescriptor } from "@dtv/contracts";
 import { LayerRuntime, type LayerHandle, type MapFacade } from "@dtv/sdk";
 import { api, runtimeConfig } from "./api";
+import { distanceMeters, areaMeters, type Coordinate } from "@dtv/contracts";
 interface Props {
   scene: SceneConfig;
   stations: Station[];
@@ -39,6 +47,10 @@ export default function MapView({
   onReady,
   onStation,
 }: Props) {
+  const latestStations = useRef(stations),
+    latestLayers = useRef(layers);
+  latestStations.current = stations;
+  latestLayers.current = layers;
   const container = useRef<HTMLDivElement>(null),
     currentTime = useRef(time),
     runtimeRef = useRef<LayerRuntime | null>(null);
@@ -50,6 +62,15 @@ export default function MapView({
     let viewer: Viewer | undefined;
     let runtime: LayerRuntime | undefined;
     let handler: ScreenSpaceEventHandler | undefined;
+    let drawing: {
+      kind: "distance" | "area";
+      points: Coordinate[];
+      onUpdate: (points: Coordinate[], done: boolean) => void;
+    } | null = null;
+    let pickOnce: ((lon: number, lat: number, height: number) => void) | null =
+      null;
+    let stopCruise: (() => void) | null = null;
+    let drawingSource: CustomDataSource | undefined;
     const initialize = async () => {
       try {
         const config = await runtimeConfig();
@@ -118,7 +139,7 @@ export default function MapView({
           id: string,
           signal: AbortSignal,
         ): Promise<LayerHandle> => {
-          const descriptor = layers.find((l) => l.id === id);
+          const descriptor = latestLayers.current.find((l) => l.id === id);
           if (!descriptor) throw new Error("图层不存在");
           if (!descriptor.available)
             throw new Error(descriptor.reason ?? "未接入数据");
@@ -166,31 +187,37 @@ export default function MapView({
                 pixelOffset: new Cartesian2(0, -12),
               },
             });
-          } else if (id === "stations") {
-            stations.forEach((s, i) =>
-              source.entities.add({
-                id: s.id,
-                position: Cartesian3.fromDegrees(s.lon, s.lat, 40),
-                point: {
-                  pixelSize: 12,
-                  color: Color.fromCssColorString("#1263c4"),
-                  outlineColor: Color.WHITE,
-                  outlineWidth: 3,
-                  disableDepthTestDistance: Infinity,
-                },
-                label: {
-                  text: `${s.name}\n${values[i]?.elements.temperatureC ?? "—"} °C`,
-                  font: "13px sans-serif",
-                  fillColor: Color.fromCssColorString("#243244"),
-                  outlineColor: Color.WHITE,
-                  outlineWidth: 3,
-                  style: LabelStyle.FILL_AND_OUTLINE,
-                  verticalOrigin: VerticalOrigin.BOTTOM,
-                  pixelOffset: new Cartesian2(0, -15),
-                  disableDepthTestDistance: Infinity,
-                },
-              }),
-            );
+          } else if (descriptor.rendererType === "station") {
+            latestStations.current
+              .filter((s) =>
+                id === "stations"
+                  ? s.type === "国家有人站"
+                  : s.type === descriptor.name,
+              )
+              .forEach((s) =>
+                source.entities.add({
+                  id: s.id,
+                  position: Cartesian3.fromDegrees(s.lon, s.lat, 40),
+                  point: {
+                    pixelSize: 12,
+                    color: Color.fromCssColorString("#1263c4"),
+                    outlineColor: Color.WHITE,
+                    outlineWidth: 3,
+                    disableDepthTestDistance: Infinity,
+                  },
+                  label: {
+                    text: `${s.name}\n${values.find((o) => o.stationId === s.id)?.elements.temperatureC ?? "—"} °C`,
+                    font: "13px sans-serif",
+                    fillColor: Color.fromCssColorString("#243244"),
+                    outlineColor: Color.WHITE,
+                    outlineWidth: 3,
+                    style: LabelStyle.FILL_AND_OUTLINE,
+                    verticalOrigin: VerticalOrigin.BOTTOM,
+                    pixelOffset: new Cartesian2(0, -15),
+                    disableDepthTestDistance: Infinity,
+                  },
+                }),
+              );
           } else {
             for (let row = 0; row < 8; row++)
               for (let col = 0; col < 10; col++) {
@@ -270,7 +297,266 @@ export default function MapView({
         };
         runtime = new LayerRuntime(createLayer);
         runtimeRef.current = runtime;
+        drawingSource = new CustomDataSource("drawing");
+        void v.dataSources.add(drawingSource);
+        const clearDrawing = () => {
+          if (v.isDestroyed()) return;
+          drawing = null;
+          pickOnce = null;
+          drawingSource?.entities.removeAll();
+          v.scene.requestRender();
+        };
         const map: MapFacade = {
+          showCruisePath: (points) => {
+            const source = new CustomDataSource("cruise-path");
+            if (points.length > 1)
+              source.entities.add({
+                polyline: {
+                  positions: Cartesian3.fromDegreesArrayHeights(
+                    points.flatMap((p) => [p.lon, p.lat, p.height + 30]),
+                  ),
+                  width: 4,
+                  material: Color.CYAN,
+                  depthFailMaterial: Color.WHITE,
+                },
+              });
+            points.forEach((p, i) =>
+              source.entities.add({
+                position: Cartesian3.fromDegrees(p.lon, p.lat, p.height + 40),
+                point: {
+                  pixelSize: 15,
+                  color: Color.fromCssColorString("#1263c4"),
+                  outlineColor: Color.WHITE,
+                  outlineWidth: 3,
+                  disableDepthTestDistance: Infinity,
+                },
+                label: {
+                  text: `${i + 1} ${p.name}`,
+                  font: "14px sans-serif",
+                  fillColor: Color.WHITE,
+                  showBackground: true,
+                  pixelOffset: new Cartesian2(0, -28),
+                  disableDepthTestDistance: Infinity,
+                },
+              }),
+            );
+            let cancelled = false;
+            const ready = v.dataSources.add(source).then(() => {
+              if (!v.isDestroyed()) {
+                if (cancelled) v.dataSources.remove(source, true);
+                v.scene.requestRender();
+              }
+            });
+            return () => {
+              cancelled = true;
+              void ready.then(() => {
+                if (!v.isDestroyed()) {
+                  v.dataSources.remove(source, true);
+                  v.scene.requestRender();
+                }
+              });
+            };
+          },
+          tilt: () => {
+            v.camera.setView({
+              orientation: {
+                heading: v.camera.heading,
+                pitch: Math.max(-1.5, v.camera.pitch + 0.2),
+                roll: 0,
+              },
+            });
+            v.scene.requestRender();
+          },
+          rotate: () => {
+            v.camera.setView({
+              orientation: {
+                heading: v.camera.heading + 0.3,
+                pitch: v.camera.pitch,
+                roll: 0,
+              },
+            });
+            v.scene.requestRender();
+          },
+          captureView: () => {
+            const p = v.camera.positionCartographic;
+            return {
+              lon: CesiumMath.toDegrees(p.longitude),
+              lat: CesiumMath.toDegrees(p.latitude),
+              height: p.height,
+              heading: v.camera.heading,
+              pitch: v.camera.pitch,
+              roll: v.camera.roll,
+            };
+          },
+          restoreView: (view) =>
+            v.camera.flyTo({
+              destination: Cartesian3.fromDegrees(
+                view.lon,
+                view.lat,
+                view.height,
+              ),
+              orientation: {
+                heading: view.heading,
+                pitch: view.pitch,
+                roll: view.roll,
+              },
+              duration: 0.7,
+            }),
+          beginMeasure: (kind, onUpdate) => {
+            stopCruise?.();
+            clearDrawing();
+            drawing = { kind, points: [], onUpdate };
+            return clearDrawing;
+          },
+          pickCoordinate: (callback) => {
+            stopCruise?.();
+            clearDrawing();
+            pickOnce = callback;
+            return clearDrawing;
+          },
+          placeModel: (url, lon, lat, height, scale, heading) => {
+            const position = Cartesian3.fromDegrees(lon, lat, height);
+            const entity = v.entities.add({
+              position,
+              orientation: Transforms.headingPitchRollQuaternion(
+                position,
+                new HeadingPitchRoll(CesiumMath.toRadians(heading), 0, 0),
+              ),
+              model: { uri: url, scale, minimumPixelSize: 24 },
+            });
+            v.scene.requestRender();
+            return () => {
+              if (!v.isDestroyed()) {
+                v.entities.remove(entity);
+                v.scene.requestRender();
+              }
+            };
+          },
+          startCruise: (points, onProgress) => {
+            stopCruise?.();
+            clearDrawing();
+            let index = 0,
+              elapsed = 0,
+              phase: "transition" | "orbit" = "transition",
+              paused = false,
+              stopped = false,
+              frameId = 0,
+              last = performance.now(),
+              lastReport = 0;
+            const report = (
+              state: "playing" | "paused" | "stopped" | "complete",
+            ) =>
+              onProgress({
+                index,
+                phase,
+                state,
+                fraction: Math.min(
+                  1,
+                  elapsed /
+                    (phase === "transition"
+                      ? points[index].transition
+                      : points[index].duration),
+                ),
+              });
+            const stop = () => {
+              if (stopped) return;
+              stopped = true;
+              cancelAnimationFrame(frameId);
+              if (!v.isDestroyed()) {
+                v.camera.lookAtTransform(Matrix4.IDENTITY);
+                v.scene.requestRender();
+              }
+              report("stopped");
+            };
+            stopCruise = stop;
+            const tick = (now: number) => {
+              if (stopped || disposed) return;
+              const dt = Math.min(0.1, (now - last) / 1000);
+              last = now;
+              if (!paused) {
+                elapsed += dt;
+                const p = points[index],
+                  previous = points[Math.max(0, index - 1)];
+                const duration =
+                  phase === "transition" ? p.transition : p.duration;
+                const t = Math.min(1, elapsed / duration);
+                const k =
+                  phase === "transition"
+                    ? p.curve === "linear"
+                      ? t
+                      : t * t * (3 - 2 * t)
+                    : 1;
+                const lon = previous.lon + (p.lon - previous.lon) * k,
+                  lat = previous.lat + (p.lat - previous.lat) * k;
+                const heading =
+                  phase === "orbit"
+                    ? t *
+                      CesiumMath.toRadians(p.angle ?? 360) *
+                      p.loops *
+                      p.direction
+                    : 0;
+                v.camera.lookAt(
+                  Cartesian3.fromDegrees(
+                    lon,
+                    lat,
+                    p.height +
+                      (phase === "transition"
+                        ? Math.sin(Math.PI * t) * (p.flightHeight ?? 3000)
+                        : 0),
+                  ),
+                  new HeadingPitchRange(
+                    (p.view?.heading ?? 0) + heading,
+                    p.view?.pitch ?? CesiumMath.toRadians(p.pitch),
+                    p.view
+                      ? Math.max(
+                          100,
+                          p.view.height /
+                            Math.max(0.1, Math.abs(Math.sin(p.view.pitch))),
+                        )
+                      : p.radius,
+                  ),
+                );
+                v.scene.requestRender();
+                if (now - lastReport > 100) {
+                  report("playing");
+                  lastReport = now;
+                }
+                if (t === 1) {
+                  elapsed = 0;
+                  if (phase === "transition") phase = "orbit";
+                  else if (index < points.length - 1) {
+                    index++;
+                    phase = "transition";
+                  } else {
+                    stopped = true;
+                    v.camera.lookAtTransform(Matrix4.IDENTITY);
+                    onProgress({
+                      index,
+                      phase,
+                      state: "complete",
+                      fraction: 1,
+                    });
+                    return;
+                  }
+                }
+              }
+              frameId = requestAnimationFrame(tick);
+            };
+            report("playing");
+            frameId = requestAnimationFrame(tick);
+            return {
+              pause() {
+                paused = true;
+                report("paused");
+              },
+              resume() {
+                paused = false;
+                last = performance.now();
+                report("playing");
+              },
+              stop,
+            };
+          },
           flyTo: (lon, lat, height = scene.height * 0.65) =>
             v.camera.flyTo({
               destination: Cartesian3.fromDegrees(lon, lat, height),
@@ -295,10 +581,72 @@ export default function MapView({
         };
         handler = new ScreenSpaceEventHandler(v.scene.canvas);
         handler.setInputAction((click: { position: Cartesian2 }) => {
+          if (drawing || pickOnce) {
+            const ray = v.camera.getPickRay(click.position);
+            const world = ray ? v.scene.globe.pick(ray, v.scene) : undefined;
+            if (!world) return;
+            const c = Cartographic.fromCartesian(world);
+            const lon = CesiumMath.toDegrees(c.longitude),
+              lat = CesiumMath.toDegrees(c.latitude);
+            if (pickOnce) {
+              const callback = pickOnce;
+              pickOnce = null;
+              callback(lon, lat, c.height);
+              return;
+            }
+            if (drawing) {
+              drawing.points.push([lon, lat]);
+              const pts = drawing.points;
+              drawingSource?.entities.removeAll();
+              drawingSource?.entities.add({
+                polyline: {
+                  positions: Cartesian3.fromDegreesArray(pts.flat()),
+                  width: 3,
+                  material: Color.CYAN,
+                },
+              });
+              if (drawing.kind === "area" && pts.length >= 3)
+                drawingSource?.entities.add({
+                  polygon: {
+                    hierarchy: new PolygonHierarchy(
+                      Cartesian3.fromDegreesArray(pts.flat()),
+                    ),
+                    material: Color.CYAN.withAlpha(0.25),
+                  },
+                });
+              drawingSource?.entities.add({
+                position: world,
+                label: {
+                  text:
+                    drawing.kind === "distance"
+                      ? `${(distanceMeters(pts) / 1000).toFixed(3)} km`
+                      : `${(areaMeters(pts) / 1e6).toFixed(3)} km²`,
+                  font: "16px sans-serif",
+                  fillColor: Color.WHITE,
+                  showBackground: true,
+                },
+              });
+              drawing.onUpdate([...pts], false);
+              v.scene.requestRender();
+              return;
+            }
+          }
           const pick = v.scene.pick(click.position);
-          const station = stations.find((s) => s.id === pick?.id?.id);
+          const station = latestStations.current.find(
+            (s) => s.id === pick?.id?.id,
+          );
           if (station) onStation(station);
         }, ScreenSpaceEventType.LEFT_CLICK);
+        handler.setInputAction(() => {
+          if (drawing) {
+            drawing.onUpdate([...drawing.points], true);
+            drawing = null;
+          }
+        }, ScreenSpaceEventType.RIGHT_CLICK);
+        handler.setInputAction(
+          () => stopCruise?.(),
+          ScreenSpaceEventType.LEFT_DOWN,
+        );
         onReady(runtime, map);
         void runtime.toggle("boundary", true);
         void runtime.toggle("stations", true);
@@ -310,19 +658,20 @@ export default function MapView({
     void initialize();
     return () => {
       disposed = true;
+      stopCruise?.();
       runtime?.dispose();
       runtimeRef.current = null;
       handler?.destroy();
       if (viewer && !viewer.isDestroyed()) viewer.destroy();
     };
-  }, [scene, stations, layers, onReady, onStation]);
+  }, [scene, onReady, onStation]);
   useEffect(() => {
     const runtime = runtimeRef.current;
     if (!runtime) return;
     for (const l of layers)
       if (["on", "loading"].includes(runtime.snapshot(l.id).status))
         void runtime.toggle(l.id, true);
-  }, [time, layers]);
+  }, [time, stations, layers]);
   return (
     <>
       <div ref={container} className="map-canvas" aria-label="三维交互地图" />

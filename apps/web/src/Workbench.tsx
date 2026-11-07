@@ -19,6 +19,17 @@ import { Icon } from "./Icon";
 import { LayerPanel } from "./LayerPanel";
 import { Timeline } from "./Timeline";
 import { useExtensions } from "./useExtensions";
+import { useBusiness } from "./business/useBusiness";
+import {
+  ToolsPanel,
+  EnvironmentOverlay,
+  type Environment,
+} from "./business/ToolsPanel";
+import { CruisePanel } from "./business/CruisePanel";
+import { StationPage } from "./business/StationPage";
+import { WeatherPage } from "./business/WeatherPage";
+import { SettingsPage, DevicePage } from "./business/SettingsPage";
+import { readFile } from "./business/files";
 const MapView = lazy(() => import("./MapView"));
 const navigation = [
   ["home", "总览地图"],
@@ -117,7 +128,52 @@ function WorkArea({ scene }: { scene: SceneConfig }) {
     [station, setStation] = useState<Station | null>(null),
     [activeMenu, setActiveMenu] = useState("home"),
     [mode, setMode] = useState<"2d" | "3d">("3d");
+  const business = useBusiness(scene.id, stations);
+  const managedStations = useMemo(
+    () => (business.data.stations.length ? business.data.stations : stations),
+    [business.data.stations, stations],
+  );
+  const [modelError, setModelError] = useState("");
+  const [environment, setEnvironment] = useState<Environment>("none");
   const extension = useExtensions(map);
+  useEffect(() => {
+    setPlaying(false);
+    setEnvironment("none");
+  }, [activeMenu]);
+  useEffect(() => {
+    if (!map?.placeModel) return;
+    let disposed = false;
+    const cleanups: (() => void)[] = [];
+    for (const station of business.data.stations) {
+      const asset = business.data.assets.find((a) => a.id === station.modelId);
+      if (!asset) continue;
+      void readFile(asset.blobId)
+        .then((blob) => {
+          if (disposed) return;
+          const url = URL.createObjectURL(blob);
+          const remove = map.placeModel?.(
+            url,
+            station.lon,
+            station.lat,
+            station.elevationM,
+            asset.scale ?? 1,
+            asset.heading ?? 0,
+          );
+          cleanups.push(() => {
+            remove?.();
+            URL.revokeObjectURL(url);
+          });
+        })
+        .catch(() => {
+          if (!disposed)
+            setModelError(`模型 ${asset.name} 的本地文件不可用，请重新上传`);
+        });
+    }
+    return () => {
+      disposed = true;
+      cleanups.forEach((fn) => fn());
+    };
+  }, [map, business.data.stations, business.data.assets]);
   const allLayers = useMemo(
     () => [...layers, ...extension.layers],
     [layers, extension.layers],
@@ -185,7 +241,7 @@ function WorkArea({ scene }: { scene: SceneConfig }) {
             <MapView
               scene={scene}
               layers={allLayers}
-              stations={stations}
+              stations={managedStations}
               time={time}
               onReady={ready}
               onStation={pickStation}
@@ -201,17 +257,24 @@ function WorkArea({ scene }: { scene: SceneConfig }) {
               : "正在读取场景图层…"}
           </div>
         )}
-        <div className="time-context">
+        <div className="time-context" hidden={activeMenu !== "home"}>
           {scene.name} · 气象图层
           <span />
           {time.slice(0, 10)} {time.slice(11, 16)}
           <span className="context-mock">示例数据</span>
         </div>
-        <aside className="map-toolbar" aria-label="地图工具">
+        <aside
+          className="map-toolbar"
+          aria-label="地图工具"
+          hidden={activeMenu !== "home"}
+        >
           <button
             aria-label="打开图层面板"
             className={panelOpen ? "active" : ""}
-            onClick={() => setPanelOpen((v) => !v)}
+            onClick={() => {
+              setPanelOpen((v) => !v);
+              setToolsOpen(false);
+            }}
           >
             <Icon name="layers" size={20} />
             <span>图层</span>
@@ -219,7 +282,10 @@ function WorkArea({ scene }: { scene: SceneConfig }) {
           <button
             aria-label="工具箱"
             className={toolsOpen ? "active" : ""}
-            onClick={() => setToolsOpen((v) => !v)}
+            onClick={() => {
+              setToolsOpen((v) => !v);
+              setPanelOpen(false);
+            }}
           >
             <Icon name="tools" size={20} />
             <span>工具箱</span>
@@ -247,9 +313,10 @@ function WorkArea({ scene }: { scene: SceneConfig }) {
             <span>定位</span>
           </button>
         </aside>
-        <div hidden={!panelOpen}>
+        <div hidden={!panelOpen || activeMenu !== "home"}>
           <LayerPanel
             layers={allLayers}
+            stations={managedStations}
             runtime={runtime}
             map={map}
             sceneId={scene.id}
@@ -258,6 +325,7 @@ function WorkArea({ scene }: { scene: SceneConfig }) {
           />
         </div>
         <button
+          hidden={activeMenu !== "home"}
           className="map-mode"
           onClick={() => {
             const next = mode === "3d" ? "2d" : "3d";
@@ -267,34 +335,18 @@ function WorkArea({ scene }: { scene: SceneConfig }) {
         >
           {mode === "3d" ? "二维视图" : "三维视图"}
         </button>
-        {toolsOpen && (
-          <section className="tool-panel panel">
-            <div className="panel-heading">
-              <strong>地图工具箱</strong>
-              <button className="mini" onClick={() => setToolsOpen(false)}>
-                关闭 ×
-              </button>
-            </div>
-            <div className="panel-body">
-              <p>经纬度定位</p>
-              <p className="muted">
-                在图层搜索框输入“经度,纬度”，例如 {scene.center.join(",")}。
-              </p>
-              <button
-                onClick={() => {
-                  setPanelOpen(true);
-                  setToolsOpen(false);
-                }}
-              >
-                打开坐标搜索
-              </button>
-              <p className="muted">
-                测距、测面与环境模拟将在后续阶段接入；当前不提供模拟测量结果。
-              </p>
-            </div>
-          </section>
+        {toolsOpen && activeMenu === "home" && (
+          <ToolsPanel
+            map={map}
+            business={business}
+            environment={environment}
+            onEnvironment={setEnvironment}
+            onClose={() => setToolsOpen(false)}
+            onRoam={() => setActiveMenu("roam")}
+          />
         )}
-        {station && (
+        <EnvironmentOverlay value={environment} />
+        {station && activeMenu === "home" && (
           <StationDetails
             station={station}
             extension={extension}
@@ -302,16 +354,38 @@ function WorkArea({ scene }: { scene: SceneConfig }) {
             onClose={() => setStation(null)}
           />
         )}
-        <ModulePanel
-          menu={activeMenu}
-          stations={stations}
-          onStation={(s) => {
-            setStation(s);
-            map?.flyTo(s.lon, s.lat);
-          }}
-          onClose={() => setActiveMenu("home")}
-        />
-        <div className="map-legend">
+        {activeMenu === "roam" && <CruisePanel business={business} map={map} />}
+        {activeMenu === "station" && (
+          <StationPage
+            business={business}
+            map={map}
+            sceneId={scene.id}
+            time={time}
+            onMap={() => setActiveMenu("home")}
+          />
+        )}
+        {activeMenu === "weather" && (
+          <WeatherPage
+            business={business}
+            map={map}
+            runtime={runtime}
+            sceneId={scene.id}
+            time={time}
+          />
+        )}
+        {activeMenu === "device" && <DevicePage />}
+        {activeMenu === "settings" && <SettingsPage business={business} />}
+        {modelError && (
+          <p role="alert" className="business-storage-error">
+            {modelError}
+          </p>
+        )}
+        {business.error && (
+          <p role="alert" className="business-storage-error">
+            {business.error}
+          </p>
+        )}
+        <div className="map-legend" hidden={activeMenu !== "home"}>
           <strong>气温 °C · 示例色标</strong>
           <div className="legend-gradient" />
           <strong>1 小时降水 mm · 示例色标</strong>
@@ -322,13 +396,15 @@ function WorkArea({ scene }: { scene: SceneConfig }) {
             <span>高</span>
           </div>
         </div>
-        <Timeline
-          times={DEMO_TIMES}
-          index={index}
-          onIndex={manualIndex}
-          playing={playing}
-          onPlaying={setPlaying}
-        />
+        <div hidden={activeMenu !== "home"}>
+          <Timeline
+            times={DEMO_TIMES}
+            index={index}
+            onIndex={manualIndex}
+            playing={playing}
+            onPlaying={setPlaying}
+          />
+        </div>
       </main>
     </div>
   );
@@ -426,64 +502,6 @@ function StationDetails({
           <p role="alert" className="error-text">
             {extension.error}
           </p>
-        )}
-      </div>
-    </section>
-  );
-}
-function ModulePanel({
-  menu,
-  stations,
-  onStation,
-  onClose,
-}: {
-  menu: string;
-  stations: Station[];
-  onStation: (s: Station) => void;
-  onClose: () => void;
-}) {
-  if (menu === "home") return null;
-  const title = navigation.find(([id]) => id === menu)?.[1];
-  return (
-    <section className="module-panel panel">
-      <div className="panel-heading">
-        <strong>{title}</strong>
-        <button className="mini" onClick={onClose}>
-          返回地图 ×
-        </button>
-      </div>
-      <div className="panel-body">
-        {menu === "station" ? (
-          <>
-            <p className="muted">当前地区示例站点 · 只读浏览</p>
-            {stations.map((s) => (
-              <button
-                className="search-result"
-                key={s.id}
-                onClick={() => onStation(s)}
-              >
-                {s.name}
-                <small>{s.id}</small>
-              </button>
-            ))}
-          </>
-        ) : (
-          <>
-            <span className="tag">建设中</span>
-            <h2>{title}</h2>
-            <p className="muted">
-              {menu === "roam"
-                ? "后续接入方案库、逐点环绕、转场和播放控制。"
-                : menu === "weather"
-                  ? "当前可在图层面板体验气温与降水示例；正式专题指标需确认数据与算法。"
-                  : menu === "device"
-                    ? "设备协议、视频与采集运行监控需现场接入。"
-                    : "当前提供三个地区场景配置。正式账号、角色、租户与审计将在服务端认证阶段实现。"}
-            </p>
-            <p className="data-disclaimer">
-              此入口用于标明建设范围，尚未提供完整业务能力。
-            </p>
-          </>
         )}
       </div>
     </section>

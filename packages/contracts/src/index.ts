@@ -175,7 +175,7 @@ export const LAYERS: LayerDescriptor[] = [
   },
   {
     id: "stations",
-    name: "气象观测站",
+    name: "国家有人站",
     category: "station",
     tag: "站点",
     rendererType: "station",
@@ -188,6 +188,56 @@ export const LAYERS: LayerDescriptor[] = [
   opacitySupported: x.rendererType !== "unavailable",
   defaultOpacity: 0.8,
 })) as LayerDescriptor[];
+const baseEntries = [
+  "高清遥感影像",
+  "航拍影像",
+  "行政边界",
+  "水系 / 河流",
+  "道路",
+  "地名标注",
+  "地形阴影",
+  "重点区域边界",
+];
+baseEntries.forEach((name, i) =>
+  LAYERS.push({
+    id: `base-${i}`,
+    name,
+    category: "base",
+    tag: i === 2 ? "行政" : "底图",
+    datasetKey: `dataset:base-${i}:v1`,
+    rendererType: "unavailable",
+    opacitySupported: false,
+    defaultOpacity: 0.8,
+    unit: "",
+    available: false,
+    reason: "未配置该内网地理数据源",
+  }),
+);
+const stationEntries = [
+  "国家无人站",
+  "雷达站",
+  "高空观测站",
+  "土壤水分站",
+  "人影高炮点",
+  "人影火箭点",
+  "灾害风险点",
+  "视频点位",
+  "收藏点位",
+];
+stationEntries.forEach((name, i) =>
+  LAYERS.push({
+    id: `station-${i}`,
+    name,
+    category: "station",
+    tag: i === 6 ? "风险" : i === 7 ? "视频" : "站点",
+    datasetKey: `dataset:station-${i}:v1`,
+    rendererType: "station",
+    opacitySupported: true,
+    defaultOpacity: 0.8,
+    unit: "°C",
+    available: true,
+  }),
+);
 export function demoStations(scene: SceneConfig): Station[] {
   return [
     [-0.25, 0.16],
@@ -226,3 +276,4 @@ export function demoObservations(
     quality: { temperatureC: "demo", rainfallMm: "demo" },
   }));
 }
+export * from "./business";

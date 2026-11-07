@@ -1052,3 +1052,617 @@ dd {
 .map-coordinates {
   bottom: 125px;
 }
+[hidden] {
+  display: none !important;
+}
+fieldset {
+  border: 0;
+  padding: 0;
+  margin: 0;
+  min-width: 0;
+}
+h3 {
+  font-size: 12px;
+  font-weight: 500;
+  color: #243244;
+  margin: 14px 0 8px;
+}
+.wide {
+  width: 100%;
+}
+.active {
+  background: #d3e6ff;
+  color: #1263c4;
+  border-color: #1263c4;
+}
+.tools-drawer {
+  position: absolute;
+  top: 8px;
+  left: 72px;
+  width: 264px;
+  max-height: calc(100% - 140px);
+  overflow: auto;
+  z-index: 5;
+}
+.tool-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 5px;
+}
+.tool-grid button {
+  padding: 5px 4px;
+  font-size: 12px;
+}
+.tool-hint {
+  font-size: 10px;
+  line-height: 1.7;
+  color: #6e7f93;
+  background: #edf1f6;
+  padding: 8px;
+}
+.bookmark-row {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+.bookmark-row button:first-child {
+  flex: 1;
+}
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: #0c1c2c73;
+  z-index: 100;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+}
+.business-modal {
+  width: 600px;
+  max-width: 100%;
+  max-height: 94vh;
+  overflow: auto;
+  box-shadow: 0 8px 30px #142a4240;
+}
+.business-modal .panel-heading {
+  height: 44px;
+  position: sticky;
+  top: 0;
+  z-index: 1;
+}
+.business-modal .panel-body {
+  padding: 24px;
+}
+.business-modal label,
+.business-page label,
+.cruise-editor label {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 12px;
+  font-size: 12px;
+}
+.business-modal input,
+.business-modal select,
+.business-page input,
+.business-page select,
+.cruise-editor input,
+.cruise-editor select {
+  height: 34px;
+  padding: 5px 9px;
+  background: white;
+  border: 1px solid #dbe3ec;
+  border-radius: 4px;
+  width: 100%;
+  color: #243244;
+}
+.form-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 4px 12px;
+}
+.inline-fields {
+  display: flex;
+  gap: 8px;
+  margin: 8px 0 14px;
+}
+.inline-fields select {
+  flex: 1;
+}
+.business-modal video {
+  width: 100%;
+  max-height: 65vh;
+}
+.pdf-viewer {
+  width: 100%;
+  height: 65vh;
+}
+.environment-overlay {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 1;
+  overflow: hidden;
+}
+.environment-overlay span {
+  position: absolute;
+  left: 350px;
+  top: 60px;
+  background: #1c466c;
+  color: #fff;
+  padding: 6px 12px;
+  font-size: 11px;
+  border-radius: 4px;
+}
+.environment-overlay.rain .particles {
+  position: absolute;
+  inset: -100%;
+  background-image: repeating-linear-gradient(
+    110deg,
+    transparent 0px,
+    transparent 45px,
+    #cce6f666 46px,
+    #cce6f666 47px,
+    transparent 48px,
+    transparent 90px
+  );
+  animation: rainfall 0.8s linear infinite;
+  transform: rotate(-8deg);
+}
+.environment-overlay.snow .particles {
+  position: absolute;
+  inset: -100%;
+  background-image: radial-gradient(circle, #ffffffdc 2px, transparent 3px);
+  background-size: 70px 90px;
+  animation: snowfall 8s linear infinite;
+}
+.environment-overlay.fog .particles {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(100deg, #e6ecf4bd, #fff6, #e6ecf4bd);
+  backdrop-filter: blur(2px);
+}
+@keyframes rainfall {
+  to {
+    translate: 0 120px;
+  }
+}
+@keyframes snowfall {
+  to {
+    translate: 50px 180px;
+  }
+}
+.cruise-library {
+  position: absolute;
+  top: 8px;
+  left: 12px;
+  width: 264px;
+  max-height: calc(100% - 150px);
+  overflow: auto;
+}
+.cruise-editor {
+  position: absolute;
+  right: 12px;
+  top: 8px;
+  width: 328px;
+  bottom: 142px;
+  overflow: auto;
+}
+.catalog-card {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  text-align: left;
+  gap: 4px;
+  padding: 10px 12px;
+  margin: 8px 0;
+  font-size: 12px;
+}
+.catalog-card small {
+  font-size: 10px;
+  color: #6e7f93;
+}
+.cruise-point {
+  display: flex;
+  align-items: center;
+  border: 1px solid #dbe3ec;
+  border-radius: 4px;
+  margin-bottom: 6px;
+  padding: 4px;
+  gap: 2px;
+}
+.cruise-point button {
+  padding: 3px;
+  font-size: 10px;
+}
+.cruise-point button:first-child {
+  flex: 1;
+  text-align: left;
+  border: 0;
+  background: transparent;
+  font-size: 12px;
+}
+.cruise-point.active {
+  background: #d3e6ff;
+}
+.cruise-playback {
+  position: absolute;
+  left: 12px;
+  right: 12px;
+  bottom: 8px;
+  min-height: 110px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 16px;
+  flex-wrap: wrap;
+}
+.cruise-playback strong {
+  font-size: 13px;
+  font-weight: 500;
+}
+.cruise-playback span {
+  font-size: 11px;
+  color: #6e7f93;
+  flex: 1;
+}
+.cruise-playback progress {
+  width: 100%;
+  height: 8px;
+  accent-color: #1263c4;
+}
+.bookmark-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-bottom: 8px;
+}
+.bookmark-chips button {
+  font-size: 10px;
+  padding: 3px 6px;
+  color: #1263c4;
+  background: #eaf3ff;
+}
+.business-page {
+  position: absolute;
+  inset: 0;
+  background: #fafafa;
+  z-index: 4;
+  padding: 8px 12px;
+  overflow: auto;
+}
+.station-page {
+  display: grid;
+  grid-template-columns: 320px minmax(400px, 640px) minmax(320px, 1fr);
+  gap: 12px;
+}
+.station-page > .panel {
+  height: 100%;
+  overflow: auto;
+}
+.station-profile h3:first-child {
+  margin-top: 0;
+}
+.station-catalog .panel-body {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+.catalog-scroll {
+  overflow: auto;
+  max-height: calc(100vh - 365px);
+}
+.filter-chips {
+  display: flex;
+  gap: 4px;
+  margin: 12px 0;
+}
+.filter-chips button {
+  font-size: 11px;
+  padding: 5px 10px;
+}
+.station-assets {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.station-assets > .panel:first-child {
+  min-height: 52%;
+}
+.asset-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  border: 1px solid #dbe3ec;
+  padding: 10px;
+  margin: 8px 0;
+  border-radius: 4px;
+  flex-wrap: wrap;
+}
+.asset-row > div {
+  flex: 1;
+  min-width: 100px;
+}
+.asset-row strong {
+  font-weight: 400;
+  font-size: 12px;
+}
+.asset-row small {
+  display: block;
+  margin-top: 4px;
+  color: #6e7f93;
+  font-size: 10px;
+}
+.asset-row button {
+  font-size: 10px;
+  padding: 4px 7px;
+}
+.model-badge {
+  display: grid;
+  place-items: center;
+  width: 40px;
+  height: 40px;
+  background: #eaf3ff;
+  border-radius: 4px;
+  color: #1263c4;
+  font-size: 12px;
+}
+.file-button {
+  border: 1px solid #dbe3ec;
+  border-radius: 4px;
+  padding: 7px 6px;
+  color: #1263c4;
+  font-size: 12px;
+  cursor: pointer;
+  text-align: center;
+  background: #fff;
+  display: block !important;
+  margin: 0 !important;
+  position: relative;
+  overflow: hidden;
+}
+.file-button input {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  cursor: pointer;
+}
+.metrics-grid > div,
+.metric-block {
+  background: #edf1f6;
+  border: 1px solid #dbe3ec;
+  padding: 10px;
+  border-radius: 4px;
+}
+.metrics-grid span,
+.metric-block span {
+  display: block;
+  font-size: 11px;
+  color: #6e7f93;
+}
+.metrics-grid strong,
+.metric-block strong {
+  display: block;
+  font-size: 13px;
+  font-weight: 400;
+  color: #1263c4;
+  margin-top: 6px;
+}
+.chart-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: 16px;
+}
+.chart-heading select {
+  width: 120px;
+}
+.trend-chart {
+  width: 100%;
+  height: 170px;
+}
+.trend-chart text {
+  fill: #6e7f93;
+  font-size: 10px;
+}
+.settings-page {
+  display: grid;
+  grid-template-columns: 320px 1fr;
+  gap: 12px;
+}
+.settings-page > .panel {
+  min-width: 0;
+}
+.config-view {
+  padding: 16px;
+  background: #edf1f6;
+  white-space: pre-wrap;
+  font-size: 12px;
+  line-height: 1.8;
+}
+.table-scroll {
+  overflow: auto;
+}
+table {
+  border-collapse: collapse;
+  width: 100%;
+  font-size: 12px;
+}
+th,
+td {
+  padding: 12px 10px;
+  border-bottom: 1px solid #dbe3ec;
+  text-align: left;
+}
+th {
+  background: #dbe3ec;
+  font-weight: 500;
+}
+tbody tr:nth-child(even) {
+  background: #edf1f6;
+}
+td button {
+  font-size: 11px;
+  padding: 4px 6px;
+}
+.weather-page {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 2;
+}
+.weather-page > * {
+  pointer-events: auto;
+}
+.topic-catalog {
+  position: absolute;
+  left: 12px;
+  top: 8px;
+  width: 320px;
+  bottom: 320px;
+}
+.topic-map-heading {
+  position: absolute;
+  left: 344px;
+  right: 344px;
+  top: 8px;
+  padding: 9px 12px;
+  background: #1c466c;
+  color: #fff;
+  font-size: 12px;
+}
+.topic-metrics {
+  position: absolute;
+  right: 12px;
+  top: 8px;
+  width: 320px;
+  bottom: 320px;
+}
+.metric-block {
+  margin-bottom: 12px;
+}
+.topic-table {
+  position: absolute;
+  left: 12px;
+  right: 12px;
+  bottom: 8px;
+  height: 300px;
+}
+.topic-table .table-scroll {
+  height: calc(100% - 36px);
+}
+.business-storage-error {
+  position: absolute;
+  left: 350px;
+  bottom: 130px;
+  background: #fff0ed;
+  color: #a63a31;
+  z-index: 10;
+  padding: 10px;
+}
+.device-page {
+  display: block;
+  padding: 0;
+  inset: 8px 12px;
+}
+.device-page > .panel-body {
+  padding: 30px;
+}
+.device-page dl {
+  max-width: 500px;
+}
+.settings-page table {
+  margin-top: 16px;
+}
+@media (max-width: 1599px) {
+  .station-page {
+    grid-template-columns: 280px minmax(380px, 1fr) 300px;
+    gap: 8px;
+  }
+  .settings-page {
+    grid-template-columns: 280px 1fr;
+  }
+  .topic-catalog {
+    width: 264px;
+  }
+  .topic-metrics {
+    width: 264px;
+  }
+  .topic-map-heading {
+    left: 288px;
+    right: 288px;
+  }
+  .cruise-editor {
+    width: 304px;
+  }
+  .business-page {
+    padding: 8px;
+  }
+}
+@media (max-width: 1100px) {
+  .station-page {
+    grid-template-columns: 240px 1fr;
+  }
+  .station-assets {
+    grid-column: 1/-1;
+    min-height: 300px;
+  }
+  .station-catalog {
+    max-height: 700px;
+  }
+  .topic-catalog {
+    width: 220px;
+    bottom: 270px;
+  }
+  .topic-metrics {
+    width: 220px;
+    bottom: 270px;
+  }
+  .topic-table {
+    height: 250px;
+  }
+  .topic-map-heading {
+    left: 244px;
+    right: 244px;
+  }
+  .cruise-library {
+    width: 220px;
+  }
+  .cruise-editor {
+    width: 280px;
+  }
+  .settings-page {
+    grid-template-columns: 220px 1fr;
+  }
+  .form-grid {
+    gap: 4px 8px;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .environment-overlay .particles {
+    animation: none !important;
+  }
+}
+.model-preview-canvas {
+  height: 280px;
+  position: relative;
+  overflow: hidden;
+  border: 1px solid #dbe3ec;
+  border-radius: 4px;
+  margin-bottom: 16px;
+}
+.model-preview-canvas .map-notice {
+  left: 5px;
+  bottom: 25px;
+  max-width: calc(100% - 10px);
+  font-size: 9px;
+  padding: 3px;
+}
+.model-preview-canvas .map-coordinates {
+  display: none;
+}
+.model-preview-canvas .cesium-viewer-bottom {
+  bottom: 0 !important;
+  left: 5px !important;
+}

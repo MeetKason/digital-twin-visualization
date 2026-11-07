@@ -15,8 +15,10 @@ export function LayerPanel({
   map,
   onClose,
   onStation,
+  stations,
 }: {
   layers: LayerDescriptor[];
+  stations: Station[];
   runtime: LayerRuntime | null;
   sceneId: string;
   map: MapFacade | null;
@@ -62,6 +64,20 @@ export function LayerPanel({
       ctrl.abort();
     };
   }, [query, sceneId]);
+  const matchingStations = [
+    ...new Map(
+      [
+        ...(result?.stations ?? []).filter(
+          (s) => !stations.some((local) => local.id === s.id),
+        ),
+        ...stations.filter(
+          (s) =>
+            query.trim() &&
+            (s.name.includes(query.trim()) || s.id.includes(query.trim())),
+        ),
+      ].map((s) => [s.id, s]),
+    ).values(),
+  ];
   const layer = layers.find((l) => l.id === selected);
   const state = runtime?.snapshot(selected);
   const rows = query.trim()
@@ -126,7 +142,7 @@ export function LayerPanel({
           </button>
         )}
         {query &&
-          result?.stations.map((s) => (
+          matchingStations.map((s) => (
             <button
               className="search-result"
               key={s.id}
@@ -192,7 +208,7 @@ export function LayerPanel({
           result &&
           !result.coordinate &&
           !result.layers.length &&
-          !result.stations.length && (
+          !matchingStations.length && (
             <p className="empty-state">没有匹配的图层或站点</p>
           )}
         <div className="opacity-control">
