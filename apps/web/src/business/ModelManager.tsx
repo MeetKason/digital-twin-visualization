@@ -18,8 +18,15 @@ import {
   type LayerDescriptor,
 } from "@dtv/contracts";
 import type { Business } from "./useBusiness";
-import { storeFile, readFile, deleteFile } from "./files";
+import {
+  storeFile,
+  readFile,
+  deleteFile,
+  migrateFile,
+  persistUploadedFile,
+} from "./files";
 import { Modal } from "./Modal";
+import { FileMaintenance } from "./FileMaintenance";
 export function ModelManager({
   business,
   lon,
@@ -64,9 +71,9 @@ export function ModelManager({
       if (!Number.isFinite(scale) || scale <= 0 || !Number.isFinite(heading))
         throw new Error("缩放和朝向参数无效");
       if (!alive.current) return;
-      const blobId = await storeFile(file);
+      const blobId = await storeFile(business.sceneId, file);
       if (!alive.current) {
-        await deleteFile(blobId);
+        await deleteFile(business.sceneId, blobId);
         return;
       }
       const asset: Asset = {
@@ -80,7 +87,10 @@ export function ModelManager({
         modelType,
         heading,
       };
-      business.update((old) => ({ ...old, assets: [...old.assets, asset] }));
+      await persistUploadedFile(business.sceneId, blobId, () =>
+        business.update((old) => ({ ...old, assets: [...old.assets, asset] })),
+      );
+      if (!alive.current) return;
       setFile(null);
       setName("");
       onChoose?.(asset.id);
@@ -93,7 +103,7 @@ export function ModelManager({
   return (
     <Modal title="管理/上传模型" onClose={onClose}>
       <p className="muted">
-        模型存于本浏览器，最大 100MB；正式资源服务尚未接入。
+        新模型保存于服务器，最大 100MB；同租户、同地区的授权账号可共用。
       </p>
       <div className="asset-list">
         {business.data.assets
@@ -103,8 +113,31 @@ export function ModelManager({
               <span className="model-badge">3D</span>
               <div>
                 <strong>{a.name}</strong>
-                <small>{a.fileName}</small>
+                <small>
+                  {a.fileName} ·{" "}
+                  {a.blobId.startsWith("srv_") ? "服务器文件" : "旧浏览器文件"}
+                </small>
               </div>
+              {!a.blobId.startsWith("srv_") && (
+                <button
+                  onClick={() => {
+                    void migrateFile(business.sceneId, a.blobId, a.fileName)
+                      .then((blobId) =>
+                        persistUploadedFile(business.sceneId, blobId, () =>
+                          business.update((old) => ({
+                            ...old,
+                            assets: old.assets.map((x) =>
+                              x.id === a.id ? { ...x, blobId } : x,
+                            ),
+                          })),
+                        ),
+                      )
+                      .catch((e) => setError(e.message));
+                  }}
+                >
+                  迁移到服务器
+                </button>
+              )}
               <button onClick={() => setPreviewAsset(a)}>地图预览</button>
               {onChoose && (
                 <button
@@ -127,13 +160,14 @@ export function ModelManager({
                     setError("模型已被站点或方案引用，不能删除");
                     return;
                   }
-                  void deleteFile(a.blobId)
-                    .then(() =>
-                      business.update((old) => ({
-                        ...old,
-                        assets: old.assets.filter((x) => x.id !== a.id),
-                      })),
-                    )
+                  void business
+                    .update((old) => ({
+                      ...old,
+                      assets: old.assets.filter((x) => x.id !== a.id),
+                    }))
+                    .then((saved) => {
+                      if (saved) return deleteFile(business.sceneId, a.blobId);
+                    })
                     .catch((e) => setError(e.message));
                 }}
               >
@@ -144,12 +178,14 @@ export function ModelManager({
       </div>
       {previewAsset && (
         <ModelPreview
+          sceneId={business.sceneId}
           asset={previewAsset}
           lon={lon}
           lat={lat}
           height={height}
         />
       )}
+      <FileMaintenance sceneId={business.sceneId} />
       <h3>上传新模型</h3>
       <form
         onSubmit={(e) => {
@@ -223,11 +259,13 @@ const noLayers: LayerDescriptor[] = [],
   noStations: Station[] = [];
 const ignoreStation = () => {};
 function ModelPreview({
+  sceneId,
   asset,
   lon,
   lat,
   height,
 }: {
+  sceneId: string;
   asset: Asset;
   lon: number;
   lat: number;
@@ -263,7 +301,7 @@ function ModelPreview({
     let active = true;
     void owner.current
       .replace(async (current) => {
-        const blob = await readFile(asset.blobId);
+        const blob = await readFile(sceneId, asset.blobId);
         if (!current()) return;
         const url = URL.createObjectURL(blob);
         try {
@@ -290,7 +328,7 @@ function ModelPreview({
     return () => {
       active = false;
     };
-  }, [map, asset, lon, lat, height]);
+  }, [map, asset, lon, lat, height, sceneId]);
   return (
     <>
       <h3>模型预览 · {asset.name}</h3>

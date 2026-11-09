@@ -58,7 +58,7 @@ export function CruisePanel({
         )
       )
         continue;
-      void readFile(asset.blobId)
+      void readFile(business.sceneId, asset.blobId)
         .then((blob) => {
           if (disposed) return;
           const url = URL.createObjectURL(blob);
@@ -81,7 +81,7 @@ export function CruisePanel({
       disposed = true;
       cleanups.forEach((fn) => fn());
     };
-  }, [map, plan, data.assets, data.stations]);
+  }, [map, plan, data.assets, data.stations, business.sceneId]);
   function edit(
     change: (old: NonNullable<typeof plan>) => NonNullable<typeof plan>,
   ) {

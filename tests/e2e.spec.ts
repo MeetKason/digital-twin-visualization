@@ -238,7 +238,7 @@ test("空间测量结束与清除、坐标定位校验", async ({ page }) => {
   await expect(dialog).toHaveCount(0);
 });
 
-test("本地模型上传、实际预览、引用保护与场景隔离", async ({ page }) => {
+test("服务器模型上传、跨浏览器预览、引用保护与场景隔离", async ({ page }) => {
   test.setTimeout(90000);
   const errors: string[] = [];
   page.on("pageerror", (e) => errors.push(e.message));
@@ -296,6 +296,39 @@ test("本地模型上传、实际预览、引用保护与场景隔离", async ({
   });
   await modal.getByRole("button", { name: "登记模型", exact: true }).click();
   await expect(modal.getByText("验收模型", { exact: true })).toBeVisible();
+  await expect(page.getByText("服务端已保存", { exact: true })).toBeVisible();
+  const state = await (
+    await page.request.get("/api/scenes/xian/business")
+  ).json();
+  expect(
+    state.data.assets.find((a: { name: string }) => a.name === "验收模型")
+      .blobId,
+  ).toMatch(/^srv_/);
+  // Share only the session cookie: this context has no IndexedDB/localStorage files.
+  const otherContext = await page.context().browser()!.newContext();
+  try {
+    await otherContext.addCookies(await page.context().cookies());
+    const other = await otherContext.newPage();
+    await other.goto("http://127.0.0.1:5173/");
+    await other
+      .locator(".side-navigation")
+      .getByRole("button", { name: "点位管理" })
+      .click();
+    await other.getByRole("button", { name: "上传/绑定", exact: true }).click();
+    const sharedModal = other.getByRole("dialog", { name: "管理/上传模型" });
+    const response = other.waitForResponse(
+      (r) => r.url().includes("/files/srv_") && r.request().method() === "GET",
+    );
+    await sharedModal
+      .getByRole("button", { name: "地图预览", exact: true })
+      .click();
+    expect((await response).status()).toBe(200);
+    await expect(
+      sharedModal.locator(".model-preview-canvas canvas"),
+    ).toBeVisible();
+  } finally {
+    await otherContext.close();
+  }
   await modal.getByRole("button", { name: "地图预览", exact: true }).click();
   await expect(modal.locator(".model-preview-canvas canvas")).toBeVisible();
   await modal.screenshot({ path: "test-results/menu-model.png" });
@@ -325,4 +358,130 @@ test("开发文件服务不得暴露服务端私有存储", async ({ request }) 
   expect(
     (await request.get("/@fs" + path.replace("/.data/", "/.DATA/"))).status(),
   ).toBe(403);
+});
+
+test("文件保存失败清理、删除重试与旧浏览器文件迁移", async ({ page }) => {
+  await page.goto("/");
+  await page.getByRole("button", { name: "进入演示系统" }).click();
+  await page
+    .locator(".side-navigation")
+    .getByRole("button", { name: "点位管理" })
+    .click();
+  await page.getByRole("button", { name: "上传/绑定", exact: true }).click();
+  const modal = page.getByRole("dialog", { name: "管理/上传模型" });
+  const model = JSON.stringify({
+    asset: { version: "2.0" },
+    scenes: [{ nodes: [] }],
+    scene: 0,
+  });
+  await page.route("**/api/scenes/xian/business", async (route) => {
+    if (route.request().method() === "PUT")
+      await route.fulfill({
+        status: 409,
+        contentType: "application/json",
+        body: JSON.stringify({ message: "模拟并发冲突" }),
+      });
+    else await route.continue();
+  });
+  await modal.getByLabel("模型名称", { exact: true }).fill("失败模型");
+  await modal
+    .getByLabel("模型文件（GLB / GLTF）")
+    .setInputFiles({
+      name: "failed.gltf",
+      mimeType: "model/gltf+json",
+      buffer: Buffer.from(model),
+    });
+  await modal.getByRole("button", { name: "登记模型", exact: true }).click();
+  await expect(modal.getByRole("alert")).toContainText("资料未保存");
+  expect(
+    await (await page.request.get("/api/scenes/xian/files")).json(),
+  ).toEqual([]);
+  await page.unroute("**/api/scenes/xian/business");
+  const uploaded = await page.request.post("/api/scenes/xian/files", {
+    headers: {
+      "X-DTV-Request": "1",
+      "Content-Type": "application/octet-stream",
+      "X-File-Name": "retry.pdf",
+    },
+    data: Buffer.from("%PDF-1.7 retry"),
+  });
+  expect(uploaded.status()).toBe(201);
+  const { id } = await uploaded.json();
+  await modal.getByRole("button", { name: "查看未关联文件" }).click();
+  await expect(modal.getByText(/retry.pdf/)).toBeVisible();
+  await page.route(`**/files/${id}`, async (route) => {
+    if (route.request().method() === "DELETE")
+      await route.fulfill({
+        status: 503,
+        contentType: "application/json",
+        body: JSON.stringify({ message: "暂时离线" }),
+      });
+    else await route.continue();
+  });
+  await modal.getByRole("button", { name: "清理文件" }).click();
+  await expect(modal.getByText(/暂时离线/)).toBeVisible();
+  await page.unroute(`**/files/${id}`);
+  await modal.getByRole("button", { name: "清理文件" }).click();
+  await expect(modal.getByText("没有未关联文件")).toBeVisible();
+  expect(
+    (await page.request.get(`/api/scenes/xian/files/${id}`)).status(),
+  ).toBe(404);
+  const legacyId = "legacy-browser-file";
+  await page.evaluate(
+    async ({ model, legacyId }) => {
+      const db = await new Promise<IDBDatabase>((resolve, reject) => {
+        const req = indexedDB.open("dtv-files-v1", 1);
+        req.onupgradeneeded = () => req.result.createObjectStore("files");
+        req.onsuccess = () => resolve(req.result);
+        req.onerror = () => reject(req.error);
+      });
+      await new Promise<void>((resolve, reject) => {
+        const tx = db.transaction("files", "readwrite");
+        tx.objectStore("files").put(new File([model], "legacy.gltf"), legacyId);
+        tx.oncomplete = () => resolve();
+        tx.onerror = () => reject(tx.error);
+      });
+      db.close();
+    },
+    { model, legacyId },
+  );
+  const old = await (
+    await page.request.get("/api/scenes/xian/business")
+  ).json();
+  old.data.assets.push({
+    id: "legacy-model",
+    name: "旧模型",
+    kind: "model",
+    blobId: legacyId,
+    fileName: "legacy.gltf",
+    size: Buffer.byteLength(model),
+  });
+  expect(
+    (
+      await page.request.put("/api/scenes/xian/business", {
+        headers: { "X-DTV-Request": "1" },
+        data: old,
+      })
+    ).status(),
+  ).toBe(200);
+  await page.reload();
+  await page
+    .locator(".side-navigation")
+    .getByRole("button", { name: "点位管理" })
+    .click();
+  await page.getByRole("button", { name: "上传/绑定", exact: true }).click();
+  await modal.getByRole("button", { name: "迁移到服务器" }).click();
+  await expect(modal.getByText(/legacy.gltf · 服务器文件/)).toBeVisible();
+  await expect(page.getByText("服务端已保存", { exact: true })).toBeVisible();
+  const migrated = await (
+    await page.request.get("/api/scenes/xian/business")
+  ).json();
+  const asset = migrated.data.assets.find(
+    (a: { id: string }) => a.id === "legacy-model",
+  );
+  expect(
+    await (
+      await page.request.get(`/api/scenes/xian/files/${asset.blobId}`)
+    ).text(),
+  ).toBe(model);
 });

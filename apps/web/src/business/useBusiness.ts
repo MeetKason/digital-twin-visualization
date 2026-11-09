@@ -59,23 +59,30 @@ export function useBusiness(sceneId: string) {
   function update(change: (old: BusinessData) => BusinessData) {
     if (!ref.current || blocked.current) {
       setError("资料未加载或保存已失败，请先重新加载");
-      return;
+      return Promise.resolve(false);
     }
     let next: BusinessData;
     try {
       next = parseBusinessData(change(ref.current.data), sceneId);
     } catch {
       setError("字段不完整或包含无效数字，未保存");
-      return;
+      return Promise.resolve(false);
     }
     const scope = ref.current.owner;
     ref.current = { ...ref.current, data: next };
     setData(next);
     setStatus("正在保存到服务端…");
     pending.current++;
+    let finish!: (saved: boolean) => void;
+    const result = new Promise<boolean>((resolve) => {
+      finish = resolve;
+    });
     queue.current = queue.current
       .then(async () => {
-        if (blocked.current) return;
+        if (blocked.current) {
+          finish(false);
+          return;
+        }
         try {
           const response = await businessApi.put(sceneId, {
             revision: confirmed.current!.revision,
@@ -83,11 +90,13 @@ export function useBusiness(sceneId: string) {
             data: next,
           });
           confirmed.current = { ...response, owner: scope };
+          finish(true);
           if (alive.current) {
             setError("");
             if (pending.current === 1) setStatus("服务端已保存");
           }
         } catch (e) {
+          finish(false);
           blocked.current = true;
           if (alive.current) {
             setError(`${(e as Error).message}；本次未保存，请重新加载后重试`);
@@ -104,6 +113,7 @@ export function useBusiness(sceneId: string) {
       .then(() => {
         if (blocked.current && pending.current > 0) pending.current = 0;
       });
+    return result;
   }
   async function reload() {
     try {

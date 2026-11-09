@@ -161,7 +161,7 @@ function WorkArea({ scene }: { scene: SceneConfig }) {
     for (const station of business.data.stations) {
       const asset = business.data.assets.find((a) => a.id === station.modelId);
       if (!asset) continue;
-      void readFile(asset.blobId)
+      void readFile(scene.id, asset.blobId)
         .then((blob) => {
           if (disposed) return;
           const url = URL.createObjectURL(blob);

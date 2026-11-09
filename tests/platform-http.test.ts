@@ -1,9 +1,10 @@
 import { it, expect } from "vitest";
 import { spawn, type ChildProcess } from "node:child_process";
-import { mkdtemp, writeFile, rm } from "node:fs/promises";
+import { mkdtemp, writeFile, rm, readdir } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createServer } from "node:net";
+import { request as httpRequest } from "node:http";
 import { once } from "node:events";
 import { hashPassword } from "../apps/core-api/src/platform/auth";
 it("真实 HTTP：跨租户隔离、角色拒写、CSRF、并发修订、服务重启和注销", async () => {
@@ -21,7 +22,7 @@ it("真实 HTTP：跨租户隔离、角色拒写、CSRF、并发修订、服务�
       id: "alpha-admin",
       tenantId: "alpha",
       role: "admin",
-      scenes: ["xian"],
+      scenes: ["xian", "taiyuan"],
       passwordHash: hashPassword("alpha-secret"),
     },
     {
@@ -142,7 +143,7 @@ it("真实 HTTP：跨租户隔离、角色拒写、CSRF、并发修订、服务�
         })
       ).status,
     ).toBe(403);
-    expect((await call("/scenes/taiyuan/business", a.cookie)).status).toBe(403);
+    expect((await call("/scenes/chengdu/business", a.cookie)).status).toBe(403);
     const beta = await (
       await call("/scenes/xian/business?tenantId=alpha", b.cookie)
     ).json();
@@ -179,6 +180,155 @@ it("真实 HTTP：跨租户隔离、角色拒写、CSRF、并发修订、服务�
       (await call("/scenes/xian/business", editor.cookie, "PUT", editState))
         .status,
     ).toBe(403);
+    const filePath = "/scenes/xian/files";
+    const pdf = "%PDF-1.7\nshared tenant attachment";
+    const upload = (
+      cookie: string,
+      name = "站点资料.pdf",
+      content = pdf,
+      extra = {},
+    ) =>
+      fetch(base + "/api" + filePath, {
+        method: "POST",
+        headers: {
+          Cookie: cookie,
+          "X-DTV-Request": "1",
+          "Content-Type": "application/octet-stream",
+          "X-File-Name": encodeURIComponent(name),
+          ...extra,
+        },
+        body: content,
+      });
+    expect((await upload("")).status).toBe(401);
+    expect((await upload(v.cookie)).status).toBe(403);
+    expect(
+      (
+        await upload(a.cookie, "a.pdf", pdf, {
+          Origin: "https://foreign.example",
+        })
+      ).status,
+    ).toBe(403);
+    expect(
+      (await upload(a.cookie, "a.html", "<script>bad</script>")).status,
+    ).toBe(400);
+    expect((await upload(a.cookie, "fake.pdf", "not a PDF")).status).toBe(400);
+    expect(
+      (
+        await upload(
+          a.cookie,
+          "external.gltf",
+          JSON.stringify({
+            asset: { version: "2.0" },
+            buffers: [{ uri: "https://outside.test/a.bin" }],
+          }),
+        )
+      ).status,
+    ).toBe(400);
+    let chunks = 101;
+    const tooLarge = await fetch(base + "/api" + filePath, {
+      method: "POST",
+      headers: {
+        Cookie: a.cookie,
+        "X-DTV-Request": "1",
+        "Content-Type": "application/octet-stream",
+        "X-File-Name": "large.pdf",
+      },
+      body: new ReadableStream({
+        pull(controller) {
+          controller.enqueue(new Uint8Array(1024 * 1024));
+          if (--chunks === 0) controller.close();
+        },
+      }),
+      duplex: "half",
+    } as RequestInit);
+    expect(tooLarge.status).toBe(413);
+    const aborted = httpRequest(base + "/api" + filePath, {
+      method: "POST",
+      headers: {
+        Cookie: a.cookie,
+        "X-DTV-Request": "1",
+        "Content-Type": "application/octet-stream",
+        "X-File-Name": "abort.pdf",
+      },
+    });
+    aborted.on("error", () => {});
+    aborted.write("%PDF-1.7 unfinished");
+    // Wait until the server has created the staging directory before disconnecting.
+    let staged = false;
+    for (let i = 0; i < 100; i++) {
+      staged = (await readdir(dir, { recursive: true })).some((p) =>
+        p.includes(".upload-"),
+      );
+      if (staged) break;
+      await new Promise((r) => setTimeout(r, 10));
+    }
+    aborted.destroy();
+    expect(staged).toBe(true);
+    for (let i = 0; i < 100; i++) {
+      if (
+        !(await readdir(dir, { recursive: true })).some((p) =>
+          p.includes(".upload-"),
+        )
+      )
+        break;
+      await new Promise((r) => setTimeout(r, 10));
+    }
+    expect(
+      (await readdir(dir, { recursive: true })).some((p) =>
+        p.includes(".upload-"),
+      ),
+    ).toBe(false);
+    const uploaded = await upload(a.cookie);
+    expect(uploaded.status).toBe(201);
+    const file = await uploaded.json();
+    expect(file.id).toMatch(/^srv_[a-f0-9-]{36}$/);
+    const downloadPath = filePath + "/" + file.id;
+    const inventory = await call(filePath, a.cookie);
+    expect(inventory.status).toBe(200);
+    expect(
+      (await inventory.json()).find((f: { id: string }) => f.id === file.id)
+        .referenced,
+    ).toBe(false);
+    expect(await (await call(filePath, b.cookie)).json()).toEqual([]);
+
+    const shared = await call(downloadPath, v.cookie);
+    expect(shared.status).toBe(200);
+    expect(shared.headers.get("x-content-type-options")).toBe("nosniff");
+    expect(await shared.text()).toBe(pdf);
+    expect((await call(downloadPath, b.cookie)).status).toBe(404);
+    expect(
+      (await call(downloadPath.replace("xian", "taiyuan"), a.cookie)).status,
+    ).toBe(404);
+    expect((await call(downloadPath, v.cookie, "DELETE")).status).toBe(403);
+    const withFile = await (
+      await call("/scenes/xian/business", a.cookie)
+    ).json();
+    withFile.data.assets.push({
+      id: "shared-pdf",
+      name: "共享文档",
+      kind: "document",
+      blobId: file.id,
+      fileName: "站点资料.pdf",
+      size: Buffer.byteLength(pdf),
+    });
+    expect(
+      (await call("/scenes/xian/business", a.cookie, "PUT", withFile)).status,
+    ).toBe(200);
+    expect((await call(downloadPath, a.cookie, "DELETE")).status).toBe(409);
+    const mismatched = await (
+      await call("/scenes/xian/business", a.cookie)
+    ).json();
+    mismatched.data.assets[0].size += 1;
+    expect(
+      (await call("/scenes/xian/business", a.cookie, "PUT", mismatched)).status,
+    ).toBe(400);
+    const foreignRef = await (
+      await call("/scenes/xian/business", b.cookie)
+    ).json();
+    foreignRef.data.assets = withFile.data.assets;
+    expect(
+      (await call("/scenes/xian/business", b.cookie, "PUT", foreignRef)).status,
+    ).toBe(400);
     const audits = await (await call("/audit", a.cookie)).json();
     expect(
       audits.some(
@@ -195,6 +345,14 @@ it("真实 HTTP：跨租户隔离、角色拒写、CSRF、并发修订、服务�
       (await (await call("/scenes/xian/business", a.cookie)).json()).data
         .stations[0].name,
     ).toBe("Alpha editor");
+    expect(await (await call(downloadPath, v.cookie)).text()).toBe(pdf);
+    const unlink = await (await call("/scenes/xian/business", a.cookie)).json();
+    unlink.data.assets = [];
+    expect(
+      (await call("/scenes/xian/business", a.cookie, "PUT", unlink)).status,
+    ).toBe(200);
+    expect((await call(downloadPath, a.cookie, "DELETE")).status).toBe(200);
+    expect((await call(downloadPath, a.cookie)).status).toBe(404);
     await call("/auth/logout", a.cookie, "POST");
     expect((await call("/scenes", a.cookie)).status).toBe(401);
     for (let i = 0; i < 5; i++)

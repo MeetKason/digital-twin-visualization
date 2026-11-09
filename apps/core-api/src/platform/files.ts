@@ -1,0 +1,172 @@
+import { createHash, randomUUID } from "node:crypto";
+import {
+  mkdir,
+  mkdtemp,
+  open,
+  readFile,
+  readdir,
+  rename,
+  rm,
+  writeFile,
+} from "node:fs/promises";
+import { join } from "node:path";
+import {
+  BadRequestException,
+  NotFoundException,
+  PayloadTooLargeException,
+  HttpException,
+} from "@nestjs/common";
+import type { IncomingMessage } from "node:http";
+import { validateUpload, type Asset } from "@dtv/contracts";
+export const MAX_FILE_BYTES = 100 * 1024 * 1024;
+type StoredFile = { id: string; name: string; size: number; type: string };
+export class FileStore {
+  private uploading = 0;
+  constructor(private readonly root: string) {}
+  private scope(tenant: string, scene: string) {
+    return join(
+      this.root,
+      createHash("sha256")
+        .update(JSON.stringify([tenant, scene]))
+        .digest("hex"),
+    );
+  }
+  private path(tenant: string, scene: string, id: string) {
+    if (
+      !/^srv_[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/.test(
+        id,
+      )
+    )
+      throw new NotFoundException("文件不存在");
+    return join(this.scope(tenant, scene), id);
+  }
+  async metadata(
+    tenant: string,
+    scene: string,
+    id: string,
+  ): Promise<StoredFile> {
+    try {
+      return JSON.parse(
+        await readFile(join(this.path(tenant, scene, id), "meta.json"), "utf8"),
+      );
+    } catch (e) {
+      if ((e as NodeJS.ErrnoException).code === "ENOENT")
+        throw new NotFoundException("文件不存在或不属于当前地区");
+      throw e;
+    }
+  }
+  async upload(
+    tenant: string,
+    scene: string,
+    req: IncomingMessage,
+  ): Promise<StoredFile> {
+    if (req.headers["content-type"] !== "application/octet-stream")
+      throw new BadRequestException("请使用二进制上传");
+    if (Number(req.headers["content-length"]) > MAX_FILE_BYTES)
+      throw new PayloadTooLargeException("文件不得超过100MB");
+    let name: string;
+    try {
+      name = decodeURIComponent(String(req.headers["x-file-name"] ?? ""));
+    } catch {
+      throw new BadRequestException("文件名编码错误");
+    }
+    if (
+      !name ||
+      name.length > 240 ||
+      /[/\\]/.test(name) ||
+      [...name].some((c) => c.charCodeAt(0) < 32 || c.charCodeAt(0) === 127) ||
+      !/\.(glb|gltf|pdf|mp4|webm)$/i.test(name)
+    )
+      throw new BadRequestException("不支持的文件名或类型");
+    if (this.uploading >= 2)
+      throw new HttpException("上传繁忙，请稍后重试", 429);
+    this.uploading++;
+    let temp: string | undefined;
+    try {
+      const dir = this.scope(tenant, scene);
+      await mkdir(dir, { recursive: true, mode: 0o700 });
+      temp = await mkdtemp(join(dir, ".upload-"));
+      const handle = await open(join(temp, "content"), "wx", 0o600);
+      let size = 0;
+      try {
+        for await (const chunk of req.iterator({ destroyOnReturn: false })) {
+          const bytes = Buffer.from(chunk);
+          size += bytes.length;
+          if (size > MAX_FILE_BYTES)
+            throw new PayloadTooLargeException("文件不得超过100MB");
+          await handle.writeFile(bytes);
+        }
+      } finally {
+        await handle.close();
+      }
+      let type: string;
+      try {
+        type = await validateUpload(
+          new File([await readFile(join(temp, "content"))], name),
+        );
+      } catch {
+        throw new BadRequestException("文件内容无效或模型包含外部资源");
+      }
+      const meta: StoredFile = { id: `srv_${randomUUID()}`, name, size, type };
+      await writeFile(join(temp, "meta.json"), JSON.stringify(meta), {
+        mode: 0o600,
+      });
+      await rename(temp, this.path(tenant, scene, meta.id));
+      temp = undefined;
+      return meta;
+    } finally {
+      this.uploading--;
+      if (temp) await rm(temp, { recursive: true, force: true });
+    }
+  }
+  async list(tenant: string, scene: string) {
+    let ids: string[];
+    try {
+      ids = await readdir(this.scope(tenant, scene));
+    } catch (e) {
+      if ((e as NodeJS.ErrnoException).code === "ENOENT") return [];
+      throw e;
+    }
+    return Promise.all(
+      ids
+        .filter((id) => id.startsWith("srv_"))
+        .map((id) => this.metadata(tenant, scene, id)),
+    );
+  }
+  async validateReferences(tenant: string, scene: string, assets: Asset[]) {
+    for (const asset of assets) {
+      // Existing browser-only records remain readable and can be explicitly migrated.
+      if (!asset.blobId.startsWith("srv_")) continue;
+      try {
+        const meta = await this.metadata(tenant, scene, asset.blobId);
+        const kind = meta.type.startsWith("model/")
+          ? "model"
+          : meta.type.startsWith("video/")
+            ? "video"
+            : "document";
+        if (
+          meta.size !== asset.size ||
+          meta.name !== asset.fileName ||
+          kind !== asset.kind
+        )
+          throw new Error();
+      } catch {
+        throw new BadRequestException(
+          "资源文件不存在、类型不匹配或不属于当前地区",
+        );
+      }
+    }
+  }
+  async download(tenant: string, scene: string, id: string) {
+    const meta = await this.metadata(tenant, scene, id);
+    const handle = await open(
+      join(this.path(tenant, scene, id), "content"),
+      "r",
+    );
+    return { meta, stream: handle.createReadStream() };
+  }
+  async remove(tenant: string, scene: string, id: string) {
+    await this.metadata(tenant, scene, id);
+    await rm(this.path(tenant, scene, id), { recursive: true });
+  }
+}

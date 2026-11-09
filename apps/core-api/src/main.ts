@@ -5,7 +5,7 @@ import type { IncomingMessage, ServerResponse } from "node:http";
 import { AppModule } from "./app";
 if (process.env.DEPLOYMENT_MODE === "production")
   throw new Error(
-    "认证与业务服务正在建设；数据库、附件服务和现场安全验收尚未完成，暂不允许 production 模式启动",
+    "正式数据、许可证、容量与安全策略及现场部署验收尚未完成，暂不允许 production 模式启动",
   );
 const app = await NestFactory.create<NestExpressApplication>(AppModule);
 app.useBodyParser("json", { limit: "2mb" });

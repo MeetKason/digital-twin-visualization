@@ -41,6 +41,7 @@ services:
       TRUST_PROXY_HOPS: "1"
     volumes:
       - ./auth:/run/dtv-auth:ro
+      - platform-files:/app/.data/files
     depends_on:
       postgres:
         condition: service_healthy
@@ -83,3 +84,4 @@ services:
     logging: *logging
 volumes:
   postgres-data:
+  platform-files:

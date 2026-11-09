@@ -12,9 +12,16 @@ import {
 import type { MapFacade } from "@dtv/sdk";
 import { api } from "../api";
 import { Modal } from "./Modal";
+import { FileMaintenance } from "./FileMaintenance";
 import { ModelManager } from "./ModelManager";
 import { download, type Business } from "./useBusiness";
-import { readFile, storeFile, deleteFile } from "./files";
+import {
+  readFile,
+  storeFile,
+  deleteFile,
+  migrateFile,
+  persistUploadedFile,
+} from "./files";
 const types = [
   "国家有人站",
   "国家无人站",
@@ -102,26 +109,28 @@ export function StationPage({
         !(await file.slice(0, 5).text()).startsWith("%PDF-")
       )
         throw new Error("无效 PDF 文件");
-      const blobId = await storeFile(file);
+      const blobId = await storeFile(sceneId, file);
       if (!alive.current) {
-        await deleteFile(blobId);
+        await deleteFile(sceneId, blobId);
         return;
       }
-      update((old) => ({
-        ...old,
-        assets: [
-          ...old.assets,
-          {
-            id: crypto.randomUUID(),
-            name: file.name,
-            fileName: file.name,
-            kind,
-            blobId,
-            stationId: station.id,
-            size: file.size,
-          },
-        ],
-      }));
+      await persistUploadedFile(sceneId, blobId, () =>
+        update((old) => ({
+          ...old,
+          assets: [
+            ...old.assets,
+            {
+              id: crypto.randomUUID(),
+              name: file.name,
+              fileName: file.name,
+              kind,
+              blobId,
+              stationId: station.id,
+              size: file.size,
+            },
+          ],
+        })),
+      );
     } catch (e) {
       setError((e as Error).message);
     }
@@ -355,13 +364,36 @@ export function StationPage({
                   <div>
                     <strong>{a.name}</strong>
                     <small>
-                      {(a.size / 1024 / 1024).toFixed(2)} MB · 本地文件
+                      {(a.size / 1024 / 1024).toFixed(2)} MB ·{" "}
+                      {a.blobId.startsWith("srv_")
+                        ? "服务器文件"
+                        : "旧浏览器文件"}
                     </small>
                   </div>
+                  {!a.blobId.startsWith("srv_") && (
+                    <button
+                      onClick={() => {
+                        void migrateFile(sceneId, a.blobId, a.fileName)
+                          .then((blobId) =>
+                            persistUploadedFile(sceneId, blobId, () =>
+                              update((old) => ({
+                                ...old,
+                                assets: old.assets.map((x) =>
+                                  x.id === a.id ? { ...x, blobId } : x,
+                                ),
+                              })),
+                            ),
+                          )
+                          .catch((e) => setError(e.message));
+                      }}
+                    >
+                      迁移到服务器
+                    </button>
+                  )}
                   <button
                     onClick={() => {
                       const request = ++viewRequest.current;
-                      void readFile(a.blobId)
+                      void readFile(sceneId, a.blobId)
                         .then((blob) => {
                           if (!alive.current || request !== viewRequest.current)
                             return;
@@ -379,13 +411,13 @@ export function StationPage({
                   </button>
                   <button
                     onClick={() =>
-                      void deleteFile(a.blobId)
-                        .then(() =>
-                          update((old) => ({
-                            ...old,
-                            assets: old.assets.filter((x) => x.id !== a.id),
-                          })),
-                        )
+                      void update((old) => ({
+                        ...old,
+                        assets: old.assets.filter((x) => x.id !== a.id),
+                      }))
+                        .then((saved) => {
+                          if (saved) return deleteFile(sceneId, a.blobId);
+                        })
                         .catch((e) => setError(e.message))
                     }
                   >
@@ -404,8 +436,9 @@ export function StationPage({
           </div>
           <div className="panel-body">
             <p className="muted">
-              最大 100MB。仅存于当前浏览器，不会上传到生产服务。
+              最大 100MB。新文件保存于服务器，按租户和地区授权读取。
             </p>
+            <FileMaintenance sceneId={sceneId} />
             <div className="tool-grid">
               <label className="file-button">
                 上传视频

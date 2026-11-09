@@ -4,6 +4,7 @@ import {
   Get,
   Post,
   Put,
+  Delete,
   Body,
   Module,
   Param,
@@ -12,6 +13,7 @@ import {
   Res,
   ForbiddenException,
 } from "@nestjs/common";
+import { pipeline } from "node:stream/promises";
 import type { ServerResponse } from "node:http";
 import {
   platform,
@@ -134,6 +136,71 @@ class ApiController {
         .catch(() => {});
       throw error;
     }
+  }
+  @Get("scenes/:id/files") async listFiles(
+    @Req() req: Request,
+    @Param("id") id: string,
+  ) {
+    const user = await this.p.access(req, id);
+    const assets = (await this.p.business(user, id)).data.assets;
+    return (await this.p.files.list(user.tenantId, id)).map((file) => ({
+      ...file,
+      referenced: assets.some((a) => a.blobId === file.id),
+    }));
+  }
+  @Post("scenes/:id/files") async uploadFile(
+    @Req() req: Request,
+    @Param("id") id: string,
+    @Res({ passthrough: true }) res: ServerResponse,
+  ) {
+    try {
+      const user = await this.p.access(req, id, true);
+      const file = await this.p.files.upload(user.tenantId, id, req);
+      await this.p.repo.logAudit({
+        tenantId: user.tenantId,
+        actor: user.id,
+        sceneId: id,
+        action: "file.upload",
+        result: "success",
+      });
+      return file;
+    } catch (error) {
+      // Never reuse a connection with an unread or rejected upload body.
+      res.setHeader("Connection", "close");
+      req.resume();
+      throw error;
+    }
+  }
+  @Get("scenes/:id/files/:fileId") async downloadFile(
+    @Req() req: Request,
+    @Param("id") id: string,
+    @Param("fileId") fileId: string,
+    @Res() res: ServerResponse,
+  ) {
+    const user = await this.p.access(req, id);
+    const { meta, stream } = await this.p.files.download(
+      user.tenantId,
+      id,
+      fileId,
+    );
+    res.setHeader("Content-Type", meta.type);
+    res.setHeader("Content-Length", meta.size);
+    res.setHeader(
+      "Content-Disposition",
+      `attachment; filename*=UTF-8''${encodeURIComponent(meta.name)}`,
+    );
+    res.setHeader("X-Content-Type-Options", "nosniff");
+    await pipeline(stream, res).catch(() => {
+      res.destroy();
+    });
+  }
+  @Delete("scenes/:id/files/:fileId") async deleteFile(
+    @Req() req: Request,
+    @Param("id") id: string,
+    @Param("fileId") fileId: string,
+  ) {
+    const user = await this.p.access(req, id, true);
+    return this.p.removeFile(user, id, fileId);
   }
   @Get("audit") async audit(@Req() req: Request) {
     const user = await this.p.current(req);

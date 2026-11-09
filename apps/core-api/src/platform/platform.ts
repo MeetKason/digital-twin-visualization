@@ -7,6 +7,7 @@ import {
   ForbiddenException,
   UnauthorizedException,
   ServiceUnavailableException,
+  ConflictException,
 } from "@nestjs/common";
 import type { IncomingMessage } from "node:http";
 import {
@@ -16,6 +17,7 @@ import {
   type Principal,
 } from "./repository";
 import { AuthService } from "./auth";
+import { FileStore } from "./files";
 import { DemoService } from "../service";
 import {
   demoStations,
@@ -57,6 +59,43 @@ export function writeBoundary(req: Request) {
 }
 export class Platform {
   private closed = false;
+  private locks = new Map<string, Promise<unknown>>();
+  readonly files: FileStore;
+  private async locked<T>(
+    user: Principal,
+    scene: string,
+    work: () => Promise<T>,
+  ): Promise<T> {
+    const key = JSON.stringify([user.tenantId, scene]);
+    const task = (this.locks.get(key) ?? Promise.resolve())
+      .catch(() => {})
+      .then(work);
+    this.locks.set(key, task);
+    try {
+      return await task;
+    } finally {
+      if (this.locks.get(key) === task) this.locks.delete(key);
+    }
+  }
+  async removeFile(user: Principal, scene: string, id: string) {
+    return this.locked(user, scene, async () => {
+      if (
+        (await this.business(user, scene)).data.assets.some(
+          (a) => a.blobId === id,
+        )
+      )
+        throw new ConflictException("文件仍被业务资料引用，请先移除引用并保存");
+      await this.files.remove(user.tenantId, scene, id);
+      await this.repo.logAudit({
+        tenantId: user.tenantId,
+        actor: user.id,
+        sceneId: scene,
+        action: "file.delete",
+        result: "success",
+      });
+      return { ok: true };
+    });
+  }
   async close() {
     if (!this.closed && this.repo instanceof PostgresRepository) {
       this.closed = true;
@@ -78,7 +117,9 @@ export class Platform {
     readonly repo: Repository,
     accounts: z.infer<typeof accountSchema>,
     allowDemo: boolean,
+    fileRoot = resolve(process.env.DATA_DIR ?? ".data", "files"),
   ) {
+    this.files = new FileStore(fileRoot);
     this.auth = new AuthService(repo, accounts, allowDemo);
   }
   async current(req: Request): Promise<Principal> {
@@ -121,6 +162,9 @@ export class Platform {
     };
   }
   async save(user: Principal, scene: string, body: unknown) {
+    return this.locked(user, scene, () => this.saveUnlocked(user, scene, body));
+  }
+  private async saveUnlocked(user: Principal, scene: string, body: unknown) {
     const envelope = z
       .object({
         revision: z.number().int().nonnegative().max(2147483646),
@@ -149,6 +193,7 @@ export class Platform {
       JSON.stringify(old.data.users) !== JSON.stringify(data.users)
     )
       throw new ForbiddenException("仅管理员可修改用户配置");
+    await this.files.validateReferences(user.tenantId, scene, data.assets);
     const saved = await this.repo.saveBusiness(
       user.tenantId,
       scene,

@@ -1,6 +1,6 @@
 # 数字孪生可视化系统
 
-**Digital Twin Visualization** · `digital-twin-visualization` · 服务端基础版本 0.2.0
+**Digital Twin Visualization** · `digital-twin-visualization` · 服务端文件续建版 0.2.0
 
 以用户最新要求为准，界面与功能**仅参考 Figma「新电子沙盘」Page（1393:37400）**，其余 Page 不参考。按左侧菜单顺序实现本地演示交互。
 
@@ -17,9 +17,9 @@
 
 站点、方案、书签、模型元数据和演示用户配置按**服务端会话的租户与场景**保存。开发启动默认使用 `apps/core-api/.data/platform.json`，配置 `DATABASE_URL` 或 `PGHOST/PGPORT/PGDATABASE/PGUSER/PGPASSWORD` 后使用 PostgreSQL。保存采用修订号 CAS，冲突或失败会提示并恢复最后确认版本；页面提供重新加载。相同真实账号/租户可跨浏览器共享元数据，演示入口则分配独立演示租户。
 
-模型与视频/PDF 二进制**仍在本浏览器 IndexedDB**，尚未迁移到服务器文件服务。因此另一浏览器虽能读到模型元数据，仍不能读取这台浏览器的文件；这部分不能作为跨租户文件隔离的生产能力验收。旧 `localStorage` 资料不会自动混入新租户，页面提供显式迁移入口，旧记录不删除。
+模型与视频/PDF 新文件保存到服务器受控目录，按会话租户与地区授权，使用同一租户的真实账号可跨浏览器读取。开发环境文件位于 `DATA_DIR/files`（默认 `apps/core-api/.data/files`），Compose 使用独立持久卷。文件名不能控制物理路径，上传内容检查、100MB 流式上限、服务器引用校验与删除保护已接入。旧 IndexedDB 文件仍可在原浏览器读取，点“迁移到服务器”后显式上传，旧文件保留；旧 `localStorage` 资料也须显式迁移，不会自动混入新租户。
 
-模型仅接收 GLB 2.0 或内嵌资源 GLTF 2.0，禁止引用外部纹理/缓冲区。单文件上限 100MB，CSV 上限 2MB。模型与书签被引用时禁止删除。预览关闭后销毁资源，离开漫游会停止相机动画。
+模型仅接收 GLB 2.0 或内嵌资源 GLTF 2.0，禁止引用外部纹理/缓冲区。单文件上限 100MB，CSV 上限 2MB。模型与书签被引用时禁止删除。删除文件先保存资料变更，再清理二进制；保存失败会尝试回收上传。“查看未关联文件”可处理上传中断或删除失败遗留的资源，支持失败重试；服务端仍会拒绝删除已有引用的文件。当前文件操作锁只适用于单 API 实例；病毒扫描、容量配额、跨实例锁及对象存储尚未提供。预览关闭后销毁资源，离开漫游会停止相机动画。
 
 测量结果为球面近似，仅供演示；默认椭球地形的拾取高度不是实测高程。页面的用户与角色表仍是演示配置；真实登录账号和角色由服务端配置决定，并由 API 强制校验。新电子沙盘未定义的设备协议、视频平台和正式权限接口不会从其他 Figma Page 补造。
 
@@ -77,7 +77,7 @@ npm run test:postgres  # 需要 Docker；临时 PostgreSQL 16 容器验证，结
 | packages/plugins | 可独立构建的 station.popup 插槽插件样例 |
 | scenarios | 西安、太原、成都三个示例地区配置 |
 | deploy | Compose、Dockerfile、Nginx、PostGIS 迁移 |
-| scripts | 数据库备份、恢复、离线镜像导出 |
+| scripts | 数据库与文件成套备份/恢复、隔离 Compose 验证、离线镜像导出 |
 | docs | 已批准建设范围、实施计划与验证记录 |
 
 ## 地图与现场配置
@@ -127,21 +127,28 @@ docker compose -f deploy/compose.yaml up -d
 打开 http://127.0.0.1:8080 。API 与数据库不映射主机端口。核心 API 与 Worker 的 PostgreSQL 连接参数仅在容器环境注入。Mock 观测与水位线在一个事务中写入。数据库迁移仅在空卷首次初始化时执行，后续迁移必须显式管理。
 
 ```bash
-scripts/backup.sh /absolute/path/dtv.dump
-# 停止依赖数据库的服务并留存当前备份后，显式执行恢复：
-CONFIRM_RESTORE=yes scripts/restore.sh /absolute/path/dtv.dump
+scripts/backup.sh /absolute/path/new-backup-directory
+# 备份会临时停止 web/core-api/worker，完成后恢复原先运行的服务。
+# 留存当前备份后，显式覆盖数据库与全部服务器文件：
+CONFIRM_RESTORE=yes scripts/restore.sh /absolute/path/backup-directory
+# 恢复完成保持应用停止；检查后启动：
+docker compose -f deploy/compose.yaml start core-api worker web
 scripts/export-images.sh /absolute/path/offline-release
 ```
 
 目标机导入镜像后用 `docker compose up -d --no-build --pull never` 启动，不能在断网现场执行构建或 npm 安装。离线包需同时交付 deploy、配置、镜像、校验清单以及所需底图/地形/模型。当前尚未生成离线镜像包，也未完成目标 CPU 架构与现场断网验收。PostGIS 镜像须在构建时核对目标架构可用性；Apple Silicon 若镜像不支持原生架构，应在目标 Linux 构建机验证，不能将模拟运行当正式证据。
 
-回滚：保留上一版本镜像、配置和配套数据库快照；停止写入后恢复快照与旧配置，加载旧镜像再启动。当前脚本不自动执行跨版本迁移回滚。
+备份目录含 `database.dump`、`files.tar.gz` 和 `SHA256SUMS`；两份数据必须成套恢复，脚本要求主机提供 bash、Docker Compose 与 shasum。账号文件、deploy/.env 和地图配置需另行加密备份。恢复校验失败不执行覆盖；恢复过程失败时应用保持停止，需用完整快照恢复后再启动。
+
+回滚：保留上一版本镜像、配置和配套数据库/文件快照；停止写入后恢复快照与旧配置，加载旧镜像再启动。当前脚本不自动执行跨版本迁移回滚。
+
+可在本机构建镜像后执行 `node scripts/verify-deployment.mjs`：脚本创建独立 Compose 项目、随机端口与卷，验证代理上传、PostGIS/Worker 和成套备份恢复，并清理测试资源。验证配置和迁移复制入容器/命名卷，避免依赖本机文件共享。PostGIS 固定 amd64；ARM 主机使用模拟，仅作为本机集成证据，不等于正式 bind mount、目标架构与现场部署验收。实测范围见 [服务端文件验收记录](docs/verification/服务端文件验收记录.md)。
 
 ## 后续接入条件
 
-1. 正式身份体系与账号管理界面、许可证/套餐/数据集授权；服务器文件服务及跨浏览器模型/附件；实体化业务表和发布流程。
+1. 正式身份体系与账号管理界面、许可证/套餐/数据集授权；文件容量配额、病毒扫描、跨实例一致性；实体化业务表和发布流程。
 2. 天擎现场 Connector、真实响应校验、分页、限流/重试、补数与监控；API 查询真实数据库。当前 Worker 与 Mock API 仍是独立边界演示。
-3. 内网天地图、地形与正式模型/附件服务；设备监控的画板、协议和数据清单。
+3. 内网天地图、地形与正式资源数据；设备监控的画板、协议和数据清单。
 4. 正式气象风险算法与预警源，不能以演示色块代替业务判断。
 5. 完成目标架构镜像、断公网、内网地图/天擎链路、备份恢复、性能与升级回滚验收。
 
