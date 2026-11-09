@@ -18,6 +18,10 @@ import {
 } from "./repository";
 import { AuthService } from "./auth";
 import { FileStore } from "./files";
+import { FileIngestionStore } from "../../../../packages/ingestion/src/file";
+import { PostgresIngestionStore } from "../../../../packages/ingestion/src/postgres";
+import { QueueWorker } from "../../../../packages/ingestion/src/worker";
+import type { IngestionStore } from "../../../../packages/ingestion/src/state";
 import { DemoService } from "../service";
 import {
   demoStations,
@@ -61,6 +65,25 @@ export class Platform {
   private closed = false;
   private locks = new Map<string, Promise<unknown>>();
   readonly files: FileStore;
+  readonly ingestion: IngestionStore;
+  private timer?: ReturnType<typeof setInterval>;
+  private executing: Promise<unknown> | null = null;
+  start() {
+    if (this.timer || this.repo instanceof PostgresRepository) return;
+    const worker = new QueueWorker(this.ingestion);
+    this.timer = setInterval(() => {
+      if (!this.executing)
+        this.executing = worker
+          .tick()
+          .catch(() => {
+            console.error("开发采集执行器失败，请检查存储");
+          })
+          .finally(() => {
+            this.executing = null;
+          });
+    }, 200);
+    this.timer.unref();
+  }
   private async locked<T>(
     user: Principal,
     scene: string,
@@ -97,6 +120,8 @@ export class Platform {
     });
   }
   async close() {
+    clearInterval(this.timer);
+    await this.executing;
     if (!this.closed && this.repo instanceof PostgresRepository) {
       this.closed = true;
       await this.repo.pool.end();
@@ -107,6 +132,8 @@ export class Platform {
       await this.repo.getSession("0".repeat(64));
       await this.repo.readBusiness("__health__", "__health__");
       await this.repo.audit("__health__");
+      if (this.repo instanceof PostgresRepository)
+        await this.repo.pool.query("SELECT 1 FROM ingestion_state LIMIT 0");
     } catch {
       throw new ServiceUnavailableException("平台存储未就绪");
     }
@@ -120,6 +147,10 @@ export class Platform {
     fileRoot = resolve(process.env.DATA_DIR ?? ".data", "files"),
   ) {
     this.files = new FileStore(fileRoot);
+    this.ingestion =
+      repo instanceof PostgresRepository
+        ? new PostgresIngestionStore(repo.pool)
+        : new FileIngestionStore(resolve(fileRoot, ".."));
     this.auth = new AuthService(repo, accounts, allowDemo);
   }
   async current(req: Request): Promise<Principal> {

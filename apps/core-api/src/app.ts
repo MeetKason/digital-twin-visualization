@@ -1,4 +1,7 @@
 import "reflect-metadata";
+import { IngestionController } from "./ingestion.controller";
+import { hourlyTime } from "@dtv/contracts";
+import { BadRequestException, NotFoundException } from "@nestjs/common";
 import {
   Controller,
   Get,
@@ -36,7 +39,7 @@ class ApiController {
     return {
       status: "ok",
       mode: "development",
-      version: "0.2.0",
+      version: "0.3.0",
       authentication: "server-session",
       storage:
         process.env.DATABASE_URL || process.env.PGHOST
@@ -213,8 +216,12 @@ class ApiController {
     @Param("id") id: string,
     @Query("sceneId") sceneId: string,
   ) {
-    await this.p.access(req, sceneId);
-    return this.p.demo.times(id);
+    const user = await this.p.access(req, sceneId);
+    this.p.demo.layer(id);
+    return (await this.p.ingestion.status(user.tenantId, sceneId)).mode ===
+      "ingested"
+      ? this.p.ingestion.times(user.tenantId, sceneId)
+      : this.p.demo.times(id);
   }
   @Get("layers/:id/data") async data(
     @Req() req: Request,
@@ -222,8 +229,38 @@ class ApiController {
     @Query("sceneId") sceneId: string,
     @Query("time") time: string,
   ) {
-    await this.p.access(req, sceneId);
-    return this.p.demo.data(id, sceneId, time);
+    const user = await this.p.access(req, sceneId);
+    const layer = this.p.demo.layer(id);
+    if ((await this.p.ingestion.status(user.tenantId, sceneId)).mode === "demo")
+      return this.p.demo.data(id, sceneId, time);
+    if (!layer.available) throw new NotFoundException(layer.reason);
+    if (!time && layer.category !== "weather")
+      return {
+        source: "mock",
+        storage: "ingested",
+        observedAt: "",
+        unit: layer.unit,
+        crs: "EPSG:4326",
+        observations: [],
+      };
+    if (!time) throw new NotFoundException("暂无入库时次，请先采集");
+    const parsed = hourlyTime.safeParse(time);
+    if (!parsed.success) throw new BadRequestException("时次格式错误");
+    const observations = await this.p.ingestion.observations(
+      user.tenantId,
+      sceneId,
+      parsed.data,
+    );
+    if (!observations.length && layer.category === "weather")
+      throw new NotFoundException("对应时次无入库资料");
+    return {
+      source: "mock",
+      storage: "ingested",
+      observedAt: parsed.data,
+      unit: layer.unit,
+      crs: "EPSG:4326",
+      observations,
+    };
   }
   @Get("search") async search(
     @Req() req: Request,
@@ -243,11 +280,14 @@ class ApiController {
   }
 }
 @Module({
-  controllers: [ApiController],
+  controllers: [ApiController, IngestionController],
   providers: [
     {
       provide: "PLATFORM_SHUTDOWN",
-      useFactory: () => ({ onApplicationShutdown: () => platform().close() }),
+      useFactory: () => ({
+        onApplicationBootstrap: () => platform().start(),
+        onApplicationShutdown: () => platform().close(),
+      }),
     },
   ],
 })

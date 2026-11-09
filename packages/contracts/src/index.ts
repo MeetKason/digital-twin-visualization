@@ -49,6 +49,7 @@ export interface Station {
   type: string;
 }
 export interface DataFrame {
+  storage?: "generated" | "ingested";
   source: "mock";
   observedAt: string;
   unit: string;
@@ -279,3 +280,4 @@ export function demoObservations(
 export * from "./business";
 
 export { validateModelFile, validateUpload } from "./files";
+export * from "./ingestion";

@@ -384,13 +384,11 @@ test("文件保存失败清理、删除重试与旧浏览器文件迁移", async
     else await route.continue();
   });
   await modal.getByLabel("模型名称", { exact: true }).fill("失败模型");
-  await modal
-    .getByLabel("模型文件（GLB / GLTF）")
-    .setInputFiles({
-      name: "failed.gltf",
-      mimeType: "model/gltf+json",
-      buffer: Buffer.from(model),
-    });
+  await modal.getByLabel("模型文件（GLB / GLTF）").setInputFiles({
+    name: "failed.gltf",
+    mimeType: "model/gltf+json",
+    buffer: Buffer.from(model),
+  });
   await modal.getByRole("button", { name: "登记模型", exact: true }).click();
   await expect(modal.getByRole("alert")).toContainText("资料未保存");
   expect(
@@ -484,4 +482,112 @@ test("文件保存失败清理、删除重试与旧浏览器文件迁移", async
       await page.request.get(`/api/scenes/xian/files/${asset.blobId}`)
     ).text(),
   ).toBe(model);
+});
+
+test("采集补数、入库预览、空时次和地图时间轴联动", async ({ page }) => {
+  await page.goto("/");
+  await page.getByRole("button", { name: "进入演示系统" }).click();
+  await page
+    .locator(".side-navigation")
+    .getByRole("button", { name: "系统管理" })
+    .click();
+  await page.getByRole("button", { name: "站点数据", exact: true }).click();
+  const panel = page.getByRole("region", { name: "采集与补数管理" });
+  await expect(panel.getByText("暂无采集任务")).toBeVisible();
+  await panel.getByRole("checkbox", { name: "使用入库观测" }).click();
+  await expect(
+    panel.getByRole("checkbox", { name: "使用入库观测" }),
+  ).toBeChecked();
+  await page
+    .locator(".side-navigation")
+    .getByRole("button", { name: "总览地图" })
+    .click();
+  await expect(page.getByText("暂无入库时次", { exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: "播放时间轴" })).toBeDisabled();
+  await page
+    .locator(".side-navigation")
+    .getByRole("button", { name: "系统管理" })
+    .click();
+  await page.getByRole("button", { name: "站点数据", exact: true }).click();
+  await panel.getByLabel("补数开始（北京时间）").fill("2026-11-07T02:00");
+  await panel.getByLabel("补数结束（北京时间）").fill("2026-11-07T04:00");
+  await panel.getByRole("button", { name: "提交补数任务" }).click();
+  await expect(panel.getByText("已完成", { exact: true })).toBeVisible();
+  await expect(panel.getByText("3/3 小时", { exact: false })).toBeVisible();
+  await panel.getByRole("button", { name: "预览最近入库时次" }).click();
+  await expect(panel.getByLabel("入库数据预览")).toContainText("入库观测");
+  const response = page.waitForResponse(
+    (r) =>
+      r.url().includes("/layers/temperature/data") &&
+      r.request().method() === "GET",
+  );
+  await page
+    .locator(".side-navigation")
+    .getByRole("button", { name: "总览地图" })
+    .click();
+  await page.getByRole("switch", { name: "气温实况" }).click();
+  expect((await response).status()).toBe(200);
+  await expect(
+    page.getByText("入库时次 · Mock", { exact: true }),
+  ).toBeVisible();
+  await expect(page.getByRole("button", { name: "播放时间轴" })).toBeEnabled();
+  expect(await page.locator(".time-ticks button").allTextContents()).toEqual([
+    "02:00",
+    "03:00",
+    "04:00",
+  ]);
+  await page.getByRole("button", { name: "04:00", exact: true }).click();
+  const added = await page.request.post("/api/scenes/xian/ingestion/jobs", {
+    headers: { "X-DTV-Request": "1" },
+    data: {
+      source: "mock",
+      startTime: "2026-11-07T01:00:00+08:00",
+      endTime: "2026-11-07T01:00:00+08:00",
+    },
+  });
+  expect(added.status()).toBe(201);
+  await expect(page.locator(".time-ticks button")).toHaveCount(4, {
+    timeout: 9000,
+  });
+  await expect(page.locator(".time-context")).toContainText("2026-11-07 04:00");
+  await page.reload();
+  await expect(
+    page.getByText("入库时次 · Mock", { exact: true }),
+  ).toBeVisible();
+  await page.getByLabel("地区场景").selectOption("taiyuan");
+  await expect(
+    page.getByText("2026-11-07 · 固定演示时次", { exact: true }),
+  ).toBeVisible();
+});
+
+test("时次接口短暂失败后自动恢复", async ({ page }) => {
+  let fail = true;
+  await page.route("**/layers/temperature/times?*", async (route) => {
+    if (fail) {
+      fail = false;
+      await route.fulfill({
+        status: 503,
+        contentType: "application/json",
+        body: JSON.stringify({ message: "临时不可用" }),
+      });
+    } else await route.continue();
+  });
+  await page.goto("/");
+  await page.getByRole("button", { name: "进入演示系统" }).click();
+  await expect(page.locator(".time-ticks button")).toHaveCount(13, {
+    timeout: 9000,
+  });
+  await expect(page.getByText(/时次读取失败：/)).toHaveCount(0);
+});
+
+test("时次接口慢于轮询周期时仍可完成加载", async ({ page }) => {
+  await page.route("**/layers/temperature/times?*", async (route) => {
+    await new Promise((resolve) => setTimeout(resolve, 6000));
+    await route.continue().catch(() => {});
+  });
+  await page.goto("/");
+  await page.getByRole("button", { name: "进入演示系统" }).click();
+  await expect(page.locator(".time-ticks button")).toHaveCount(13, {
+    timeout: 10000,
+  });
 });

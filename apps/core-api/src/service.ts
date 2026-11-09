@@ -43,6 +43,7 @@ export class DemoService {
       throw new NotFoundException("对应时次无数据");
     return {
       source: "mock" as const,
+      storage: "generated" as const,
       observedAt: time,
       unit: layer.unit,
       crs: "EPSG:4326" as const,

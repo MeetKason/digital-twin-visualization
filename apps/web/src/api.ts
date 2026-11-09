@@ -16,6 +16,11 @@ async function get<T>(url: string, signal?: AbortSignal): Promise<T> {
   return response.json() as Promise<T>;
 }
 export const api = {
+  ingestion: (sceneId: string, signal?: AbortSignal) =>
+    get<import("@dtv/contracts").IngestionStatus>(
+      `/scenes/${sceneId}/ingestion`,
+      signal,
+    ),
   scenes: (signal?: AbortSignal) => get<SceneConfig[]>("/scenes", signal),
   layers: (id: string, signal?: AbortSignal) =>
     get<LayerDescriptor[]>(`/scenes/${id}/layers`, signal),

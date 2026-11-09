@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import type { DemoUser } from "@dtv/contracts";
 import type { Business } from "./useBusiness";
 import { download } from "./useBusiness";
+import { IngestionPanel } from "./IngestionPanel";
 import { Modal } from "./Modal";
 const sections = [
   "用户管理",
@@ -10,7 +11,13 @@ const sections = [
   "用户与权限",
   "站点数据",
 ];
-export function SettingsPage({ business }: { business: Business }) {
+export function SettingsPage({
+  business,
+  onDataChanged,
+}: {
+  business: Business;
+  onDataChanged: () => void;
+}) {
   const [section, setSection] = useState(sections[0]),
     [user, setUser] = useState<DemoUser | null>(null),
     [config, setConfig] = useState<unknown>(null),
@@ -51,11 +58,13 @@ export function SettingsPage({ business }: { business: Business }) {
       <section className="panel">
         <div className="panel-heading">
           <strong>{section}</strong>
-          <span>本地演示配置</span>
+          <span>
+            {section === "站点数据" ? "服务端资料与采集" : "演示配置"}
+          </span>
         </div>
         <div className="panel-body">
           <p className="data-disclaimer">
-            此处管理本地演示资料。角色说明不会替代服务端认证和权限校验，不收集或保存生产密码。
+            业务资料与采集任务按服务器租户和地区保存。下方演示用户表不会改变登录账号的真实权限，不收集或保存生产密码。
           </p>
           {["用户管理", "账号开通/管理", "用户与权限"].includes(section) ? (
             <>
@@ -136,6 +145,10 @@ export function SettingsPage({ business }: { business: Business }) {
             </>
           ) : (
             <>
+              <IngestionPanel
+                sceneId={business.sceneId}
+                onDataChanged={onDataChanged}
+              />
               <p>
                 站点 {business.data.stations.length} 个 · 方案{" "}
                 {business.data.plans.length} 个 · 视角{" "}
@@ -153,8 +166,7 @@ export function SettingsPage({ business }: { business: Business }) {
                 导出本地演示资料
               </button>
               <p className="muted">
-                文件仅为演示数据备份，不包含 IndexedDB
-                中的模型和附件二进制文件。
+                文件仅包含业务元数据，不包含服务器或旧浏览器中的模型和附件二进制；完整备份使用服务器成套备份脚本。
               </p>
             </>
           )}

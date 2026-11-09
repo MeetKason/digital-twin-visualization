@@ -1,7 +1,7 @@
 name: digital-twin-visualization
 services:
   web:
-    image: dtv-web:0.2.0
+    image: dtv-web:0.3.0
     build:
       context: ..
       dockerfile: deploy/web.Dockerfile
@@ -21,7 +21,7 @@ services:
       driver: json-file
       options: {max-size: "10m", max-file: "3"}
   core-api:
-    image: dtv-server:0.2.0
+    image: dtv-server:0.3.0
     build:
       context: ..
       dockerfile: deploy/server.Dockerfile
@@ -53,7 +53,7 @@ services:
       retries: 3
     logging: *logging
   worker:
-    image: dtv-server:0.2.0
+    image: dtv-server:0.3.0
     command: ["node", "dist/server/worker/src/main.js"]
     environment:
       PGHOST: postgres

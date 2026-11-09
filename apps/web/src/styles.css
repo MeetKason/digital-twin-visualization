@@ -1685,3 +1685,10 @@ td button {
   padding: 2px 6px;
   font-size: 10px;
 }
+
+.ingestion-panel { margin-bottom: 24px; }
+.ingestion-panel > label { display: block; margin: 10px 0; }
+.ingestion-panel input[type="checkbox"] { width: auto; margin-right: 8px; }
+.ingestion-panel form { margin: 16px 0; }
+.ingestion-jobs { max-height: 380px; overflow: auto; margin: 16px 0; }
+.ingestion-jobs small { display: block; color: #8297ad; }

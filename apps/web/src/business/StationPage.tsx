@@ -1,6 +1,5 @@
 import { useEffect, useRef, useState } from "react";
 import {
-  DEMO_TIMES,
   csvCell,
   parseStationCsv,
   parseCoordinate,
@@ -10,6 +9,7 @@ import {
   type DataFrame,
 } from "@dtv/contracts";
 import type { MapFacade } from "@dtv/sdk";
+import { beijingTime } from "../time";
 import { api } from "../api";
 import { Modal } from "./Modal";
 import { FileMaintenance } from "./FileMaintenance";
@@ -729,11 +729,15 @@ function ObservationCard({
   useEffect(() => {
     const ctrl = new AbortController();
     setFrames([]);
-    void Promise.all(
-      DEMO_TIMES.map((t) =>
-        api.data("stations", station.sceneId, t, ctrl.signal),
-      ),
-    )
+    void api
+      .times("stations", station.sceneId, ctrl.signal)
+      .then((times) =>
+        Promise.all(
+          times
+            .slice(-24)
+            .map((t) => api.data("stations", station.sceneId, t, ctrl.signal)),
+        ),
+      )
       .then(setFrames)
       .catch((e) => {
         if (!ctrl.signal.aborted) setError(e.message);
@@ -763,7 +767,7 @@ function ObservationCard({
   return (
     <>
       <h3>
-        最新观测摘要 <span className="tag">Mock · {time.slice(11, 16)}</span>
+        最新观测摘要 <span className="tag">Mock · {beijingTime(time)}</span>
       </h3>
       <div className="form-grid metrics-grid">
         {(

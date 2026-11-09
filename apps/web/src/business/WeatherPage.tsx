@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import type { DataFrame } from "@dtv/contracts";
 import type { MapFacade, LayerRuntime } from "@dtv/sdk";
+import { beijingTime } from "../time";
 import { api } from "../api";
 import type { Business } from "./useBusiness";
 const topics = ["暴雨洪涝", "强对流", "低温雨雪冰冻", "山洪地质灾害"];
@@ -82,7 +83,7 @@ export function WeatherPage({
         </div>
       </aside>
       <div className="topic-map-heading panel">
-        {topics[topic]} · 重点站点 · {time.slice(11, 16)} UTC+8{" "}
+        {topics[topic]} · 重点站点 · {beijingTime(time)} UTC+8{" "}
         <span className="tag">Mock</span>
       </div>
       <aside className="topic-metrics panel">
@@ -149,7 +150,7 @@ export function WeatherPage({
                     {topic === 2 ? "°C" : "mm"}
                   </td>
                   <td>未接入</td>
-                  <td>{o?.observedAt.slice(11, 16) ?? "无资料"}</td>
+                  <td>{beijingTime(o?.observedAt)}</td>
                 </tr>
               ))}
             </tbody>

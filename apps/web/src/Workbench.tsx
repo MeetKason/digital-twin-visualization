@@ -5,6 +5,7 @@ import {
   useMemo,
   useEffect,
   useState,
+  useRef,
 } from "react";
 import type {
   SceneConfig,
@@ -12,7 +13,7 @@ import type {
   Station,
   DataFrame,
 } from "@dtv/contracts";
-import { DEMO_TIMES } from "@dtv/contracts";
+
 import type { LayerRuntime, MapFacade } from "@dtv/sdk";
 import { api, authApi, type SessionUser } from "./api";
 import { Icon } from "./Icon";
@@ -29,6 +30,7 @@ import { CruisePanel } from "./business/CruisePanel";
 import { StationPage } from "./business/StationPage";
 import { WeatherPage } from "./business/WeatherPage";
 import { SettingsPage, DevicePage } from "./business/SettingsPage";
+import { beijingTime } from "./time";
 import { readFile } from "./business/files";
 const MapView = lazy(() => import("./MapView"));
 const navigation = [
@@ -137,7 +139,7 @@ function WorkArea({ scene }: { scene: SceneConfig }) {
     [map, setMap] = useState<MapFacade | null>(null),
     [panelOpen, setPanelOpen] = useState(true),
     [toolsOpen, setToolsOpen] = useState(false),
-    [index, setIndex] = useState(12),
+    [index, setIndex] = useState(0),
     [playing, setPlaying] = useState(false),
     [station, setStation] = useState<Station | null>(null),
     [activeMenu, setActiveMenu] = useState("home"),
@@ -187,12 +189,97 @@ function WorkArea({ scene }: { scene: SceneConfig }) {
       disposed = true;
       cleanups.forEach((fn) => fn());
     };
-  }, [map, business.data.stations, business.data.assets]);
+  }, [map, business.data.stations, business.data.assets, scene.id]);
   const allLayers = useMemo(
     () => [...layers, ...extension.layers],
     [layers, extension.layers],
   );
-  const time = DEMO_TIMES[index];
+  const signature = useRef(""),
+    refreshNeeded = useRef(true),
+    selectedTime = useRef(""),
+    refreshing = useRef<AbortController | null>(null);
+  const [dataMode, setDataMode] = useState<"demo" | "ingested">("demo");
+  const [times, setTimes] = useState<string[]>([]),
+    [dataRevision, setDataRevision] = useState(0),
+    [timesError, setTimesError] = useState("");
+  const onDataChanged = useCallback(() => setDataRevision((r) => r + 1), []);
+  const time = times[index] ?? "";
+  if (time) selectedTime.current = time;
+  useEffect(() => {
+    const ctrl = new AbortController();
+    refreshNeeded.current = true;
+    refreshing.current = ctrl;
+    // Read the mode first; a change between requests will be detected by the next status poll.
+    void api
+      .ingestion(scene.id, ctrl.signal)
+      .then(async (state) => {
+        const next = await api.times("temperature", scene.id, ctrl.signal);
+        return [next, state] as const;
+      })
+      .then(([next, state]) => {
+        if (ctrl.signal.aborted) return;
+        refreshNeeded.current = false;
+        signature.current = `${state.mode}:${state.watermark}:${state.lastSuccessAt}`;
+        setDataMode(state.mode);
+        const preserved = next.findIndex(
+          (t) => Date.parse(t) === Date.parse(selectedTime.current),
+        );
+        setTimes(next);
+        setIndex((i) =>
+          preserved >= 0
+            ? preserved
+            : Math.max(0, Math.min(i, next.length - 1)),
+        );
+        setTimesError("");
+        if (dataRevision === 0) setIndex(Math.max(0, next.length - 1));
+      })
+      .catch((e) => {
+        if (!ctrl.signal.aborted) {
+          setTimes([]);
+          setIndex(0);
+          setTimesError(e.message);
+        }
+      })
+      .finally(() => {
+        if (refreshing.current === ctrl) refreshing.current = null;
+      });
+    return () => {
+      ctrl.abort();
+      if (refreshing.current === ctrl) refreshing.current = null;
+    };
+  }, [scene.id, dataRevision]);
+  useEffect(() => {
+    const ctrl = new AbortController();
+    let pending = false;
+    const timer = setInterval(() => {
+      if (pending || refreshing.current) return;
+      pending = true;
+      void api
+        .ingestion(scene.id, ctrl.signal)
+        .then((state) => {
+          if (ctrl.signal.aborted || refreshing.current) return;
+          const next = `${state.mode}:${state.watermark}:${state.lastSuccessAt}`;
+          if (
+            !signature.current ||
+            refreshNeeded.current ||
+            next !== signature.current
+          )
+            onDataChanged();
+          else setTimesError("");
+        })
+        .catch((e) => {
+          if (!ctrl.signal.aborted)
+            setTimesError("采集状态刷新失败：" + e.message);
+        })
+        .finally(() => {
+          pending = false;
+        });
+    }, 5000);
+    return () => {
+      ctrl.abort();
+      clearInterval(timer);
+    };
+  }, [scene.id, onDataChanged]);
   useEffect(() => {
     const ctrl = new AbortController();
     void Promise.all([
@@ -213,13 +300,13 @@ function WorkArea({ scene }: { scene: SceneConfig }) {
     return () => ctrl.abort();
   }, [scene.id]);
   useEffect(() => {
-    if (!playing) return;
+    if (!playing || !times.length) return;
     const timer = setInterval(
-      () => setIndex((i) => (i + 1) % DEMO_TIMES.length),
+      () => setIndex((i) => (i + 1) % times.length),
       1600,
     );
     return () => clearInterval(timer);
-  }, [playing]);
+  }, [playing, times.length]);
   const ready = useCallback((r: LayerRuntime, m: MapFacade) => {
     setRuntime(r);
     setMap(m);
@@ -257,6 +344,7 @@ function WorkArea({ scene }: { scene: SceneConfig }) {
               layers={allLayers}
               stations={managedStations}
               time={time}
+              dataRevision={dataRevision}
               onReady={ready}
               onStation={pickStation}
             />
@@ -274,7 +362,7 @@ function WorkArea({ scene }: { scene: SceneConfig }) {
         <div className="time-context" hidden={activeMenu !== "home"}>
           {scene.name} · 气象图层
           <span />
-          {time.slice(0, 10)} {time.slice(11, 16)}
+          {beijingTime(time)}
           <span className="context-mock">示例数据</span>
         </div>
         <aside
@@ -388,10 +476,17 @@ function WorkArea({ scene }: { scene: SceneConfig }) {
           />
         )}
         {activeMenu === "device" && <DevicePage />}
-        {activeMenu === "settings" && <SettingsPage business={business} />}
+        {activeMenu === "settings" && (
+          <SettingsPage business={business} onDataChanged={onDataChanged} />
+        )}
         {modelError && (
           <p role="alert" className="business-storage-error">
             {modelError}
+          </p>
+        )}
+        {timesError && (
+          <p role="alert" className="business-storage-error">
+            时次读取失败：{timesError}
           </p>
         )}
         <div className="business-sync">
@@ -425,7 +520,8 @@ function WorkArea({ scene }: { scene: SceneConfig }) {
         </div>
         <div hidden={activeMenu !== "home"}>
           <Timeline
-            times={DEMO_TIMES}
+            times={times}
+            mode={dataMode}
             index={index}
             onIndex={manualIndex}
             playing={playing}
@@ -496,7 +592,7 @@ function StationDetails({
         </div>
         <dl>
           <dt>有效时次</dt>
-          <dd>{time.slice(0, 16).replace("T", " ")} UTC+8</dd>
+          <dd>{beijingTime(time)} UTC+8</dd>
           <dt>经纬度</dt>
           <dd>
             {station.lon.toFixed(4)}, {station.lat.toFixed(4)}

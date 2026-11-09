@@ -36,6 +36,7 @@ interface Props {
   stations: Station[];
   layers: LayerDescriptor[];
   time: string;
+  dataRevision?: number;
   onReady: (runtime: LayerRuntime, map: MapFacade) => void;
   onStation: (station: Station) => void;
 }
@@ -44,6 +45,7 @@ export default function MapView({
   stations,
   layers,
   time,
+  dataRevision = 0,
   onReady,
   onStation,
 }: Props) {
@@ -669,9 +671,9 @@ export default function MapView({
     const runtime = runtimeRef.current;
     if (!runtime) return;
     for (const l of layers)
-      if (["on", "loading"].includes(runtime.snapshot(l.id).status))
+      if (["on", "loading", "error"].includes(runtime.snapshot(l.id).status))
         void runtime.toggle(l.id, true);
-  }, [time, stations, layers]);
+  }, [time, stations, layers, dataRevision]);
   return (
     <>
       <div ref={container} className="map-canvas" aria-label="三维交互地图" />

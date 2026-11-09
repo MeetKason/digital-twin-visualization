@@ -180,6 +180,89 @@ it("真实 HTTP：跨租户隔离、角色拒写、CSRF、并发修订、服务�
       (await call("/scenes/xian/business", editor.cookie, "PUT", editState))
         .status,
     ).toBe(403);
+    const ingestionPath = "/scenes/xian/ingestion";
+    expect((await call(ingestionPath, a.cookie)).status).toBe(200);
+    const request = {
+      source: "mock",
+      startTime: "2026-11-07T00:00:00+08:00",
+      endTime: "2026-11-07T01:00:00+08:00",
+    };
+    expect(
+      (await call(ingestionPath + "/jobs", v.cookie, "POST", request)).status,
+    ).toBe(403);
+    expect(
+      (
+        await call(ingestionPath + "/jobs", a.cookie, "POST", {
+          ...request,
+          source: "tianqing",
+        })
+      ).status,
+    ).toBe(400);
+    expect(
+      (
+        await call(ingestionPath + "/config", v.cookie, "PUT", {
+          mode: "ingested",
+        })
+      ).status,
+    ).toBe(403);
+    expect(
+      (
+        await call(ingestionPath + "/config", editor.cookie, "PUT", {
+          mode: "ingested",
+        })
+      ).status,
+    ).toBe(403);
+    const accepted = await call(
+      ingestionPath + "/jobs",
+      a.cookie,
+      "POST",
+      request,
+    );
+    expect(accepted.status).toBe(201);
+    const task = await accepted.json();
+    for (let i = 0; i < 100; i++) {
+      const status = await (await call(ingestionPath, a.cookie)).json();
+      if (
+        status.jobs.find(
+          (j: { id: string; status: string }) => j.id === task.id,
+        )?.status === "succeeded"
+      )
+        break;
+      await new Promise((r) => setTimeout(r, 25));
+    }
+    const ingested = await (await call(ingestionPath, a.cookie)).json();
+    expect(ingested.jobs[0]).toMatchObject({
+      source: "mock",
+      status: "succeeded",
+      completedHours: 2,
+    });
+    expect((await (await call(ingestionPath, b.cookie)).json()).jobs).toEqual(
+      [],
+    );
+    expect(
+      (await call(ingestionPath.replace("xian", "chengdu"), a.cookie)).status,
+    ).toBe(403);
+    expect(
+      (
+        await call(ingestionPath + "/config", a.cookie, "PUT", {
+          mode: "ingested",
+        })
+      ).status,
+    ).toBe(200);
+    const query =
+      "/layers/temperature/data?sceneId=xian&time=2026-11-06T16:00:00.000Z";
+    const frame = await (await call(query, a.cookie)).json();
+    expect(frame.storage).toBe("ingested");
+    expect(frame.source).toBe("mock");
+    expect(frame.observations.length).toBeGreaterThan(0);
+    expect((await call(query.replace("16:00", "15:00"), a.cookie)).status).toBe(
+      404,
+    );
+    expect(
+      await (
+        await call("/layers/temperature/times?sceneId=xian", a.cookie)
+      ).json(),
+    ).toEqual(["2026-11-06T16:00:00.000Z", "2026-11-06T17:00:00.000Z"]);
     const filePath = "/scenes/xian/files";
     const pdf = "%PDF-1.7\nshared tenant attachment";
     const upload = (
@@ -345,6 +428,9 @@ it("真实 HTTP：跨租户隔离、角色拒写、CSRF、并发修订、服务�
       (await (await call("/scenes/xian/business", a.cookie)).json()).data
         .stations[0].name,
     ).toBe("Alpha editor");
+    expect((await (await call(query, a.cookie)).json()).storage).toBe(
+      "ingested",
+    );
     expect(await (await call(downloadPath, v.cookie)).text()).toBe(pdf);
     const unlink = await (await call("/scenes/xian/business", a.cookie)).json();
     unlink.data.assets = [];

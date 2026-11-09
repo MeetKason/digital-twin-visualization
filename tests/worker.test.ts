@@ -1,32 +1,86 @@
-import { it, expect } from "vitest";
+import { it, expect, vi } from "vitest";
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { FileIngestionStore } from "../packages/ingestion/src/file";
 import {
-  IngestRunner,
-  MemoryStore,
-  MockConnector,
-} from "../apps/worker/src/index";
-it("幂等入库和成功后推进水位线，失败保留原水位", async () => {
-  const store = new MemoryStore(),
-    connector = new MockConnector();
-  const runner = new IngestRunner(connector, store);
-  await runner.run("2026-11-07T00:00:00Z");
-  const n = store.rows.size;
-  await runner.run("2026-11-07T00:00:00Z");
-  expect(store.rows.size).toBe(n);
-  expect(store.watermark).toBe("2026-11-07T00:00:00Z");
-  store.failNext = true;
-  await expect(runner.run("2026-11-07T01:00:00Z")).rejects.toThrow();
-  expect(store.watermark).toBe("2026-11-07T00:00:00Z");
+  QueueWorker,
+  MockSceneConnector,
+} from "../packages/ingestion/src/worker";
+it("Worker 失败不写入，重试按任务地区执行且不持久化敏感错误", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "dtv-worker-"));
+  vi.useFakeTimers();
+  vi.setSystemTime(new Date("2026-11-09T00:00:00Z"));
+  try {
+    const store = new FileIngestionStore(dir);
+    await store.enqueue(
+      "alpha",
+      "taiyuan",
+      {
+        source: "mock",
+        startTime: "2026-11-07T00:00:00Z",
+        endTime: "2026-11-07T00:00:00Z",
+      },
+      "a",
+    );
+    const failed = new QueueWorker(store, {
+      fetch: async () => {
+        throw new Error("upstream secret-token");
+      },
+    });
+    await failed.tick();
+    expect(await store.times("alpha", "taiyuan")).toEqual([]);
+    expect(
+      JSON.stringify(await store.status("alpha", "taiyuan")),
+    ).not.toContain("secret-token");
+    vi.setSystemTime(new Date("2026-11-09T00:00:06Z"));
+    await new QueueWorker(store).tick();
+    expect((await store.status("alpha", "taiyuan")).jobs[0].status).toBe(
+      "succeeded",
+    );
+    const rows = await store.observations(
+      "alpha",
+      "taiyuan",
+      "2026-11-07T00:00:00.000Z",
+    );
+    expect(rows.length).toBeGreaterThan(0);
+    expect(
+      rows.every(
+        (r) => r.source === "mock" && r.stationId.startsWith("taiyuan"),
+      ),
+    ).toBe(true);
+    expect(await store.times("alpha", "xian")).toEqual([]);
+  } finally {
+    vi.useRealTimers();
+    await rm(dir, { recursive: true, force: true });
+  }
 });
-
-it("无效纬度不能提交到持久层", async () => {
-  const store = new MemoryStore();
-  const connector = new MockConnector();
-  const rows = await connector.fetch("2026-11-07T00:00:00Z");
-  rows[0].location.lat = NaN;
-  await expect(
-    new IngestRunner({ fetch: async () => rows }, store).run(
-      "2026-11-07T00:00:00Z",
-    ),
-  ).rejects.toThrow("契约");
-  expect(store.rows.size).toBe(0);
+it("Worker 无效观测进入重试且水位不推进", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "dtv-worker-invalid-"));
+  try {
+    const store = new FileIngestionStore(dir),
+      connector = new MockSceneConnector();
+    await store.enqueue(
+      "alpha",
+      "xian",
+      {
+        source: "mock",
+        startTime: "2026-11-07T00:00:00Z",
+        endTime: "2026-11-07T00:00:00Z",
+      },
+      "a",
+    );
+    await new QueueWorker(store, {
+      fetch: async (scene, time) => {
+        const rows = await connector.fetch(scene, time);
+        rows[0].location.lat = NaN;
+        return rows;
+      },
+    }).tick();
+    const state = await store.status("alpha", "xian");
+    expect(state.watermark).toBeNull();
+    expect(state.jobs[0].status).toBe("retrying");
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
 });

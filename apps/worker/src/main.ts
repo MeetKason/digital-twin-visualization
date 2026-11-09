@@ -1,18 +1,18 @@
 import { Pool } from "pg";
-import { IngestRunner, MockConnector, MemoryStore } from "./index";
-import { PostgresStore } from "./postgres";
-const pool =
-  process.env.DATABASE_URL || process.env.PGHOST
-    ? new Pool(
-        process.env.DATABASE_URL
-          ? { connectionString: process.env.DATABASE_URL }
-          : undefined,
-      )
-    : null;
-const runner = new IngestRunner(
-  new MockConnector(),
-  pool ? new PostgresStore(pool) : new MemoryStore(),
-);
+import { PostgresIngestionStore } from "../../../packages/ingestion/src/postgres";
+import { QueueWorker } from "../../../packages/ingestion/src/worker";
+if (!process.env.DATABASE_URL && !process.env.PGHOST)
+  throw new Error(
+    "独立 Worker 需要 PostgreSQL；本地开发文件模式由 API 内执行器处理",
+  );
+const pool = new Pool({
+  ...(process.env.DATABASE_URL
+    ? { connectionString: process.env.DATABASE_URL }
+    : {}),
+  connectionTimeoutMillis: 10000,
+  statement_timeout: 15000,
+});
+const worker = new QueueWorker(new PostgresIngestionStore(pool));
 let stopping = false;
 process.on("SIGTERM", () => {
   stopping = true;
@@ -20,36 +20,25 @@ process.on("SIGTERM", () => {
 process.on("SIGINT", () => {
   stopping = true;
 });
-let failures = 0;
-while (!stopping) {
-  const time = new Date(
-    Math.floor(Date.now() / 3600000) * 3600000,
-  ).toISOString();
-  try {
-    const count = await runner.run(time);
-    failures = 0;
-    console.log(
-      JSON.stringify({
-        source: "mock",
-        status: "ok",
-        time,
-        count,
-        storage: pool ? "postgres" : "memory",
-      }),
-    );
-  } catch (error) {
-    failures++;
-    console.error(
-      JSON.stringify({
-        status: "error",
-        attempt: failures,
-        message: error instanceof Error ? error.message : "采集失败",
-      }),
-    );
+try {
+  while (!stopping) {
+    let worked = false;
+    try {
+      worked = await worker.tick();
+    } catch {
+      console.error(
+        JSON.stringify({
+          source: "mock",
+          status: "error",
+          message: "队列读取失败，请检查迁移、数据库与连接配置",
+        }),
+      );
+    }
+    if (process.env.WORKER_ONCE === "1") break;
+    if (!worked)
+      for (let elapsed = 0; elapsed < 2000 && !stopping; elapsed += 100)
+        await new Promise((r) => setTimeout(r, 100));
   }
-  if (process.env.WORKER_ONCE === "1") break;
-  const delay = Math.min(60000, 3000 * 2 ** Math.min(failures, 4));
-  for (let elapsed = 0; elapsed < delay && !stopping; elapsed += 250)
-    await new Promise((r) => setTimeout(r, 250));
+} finally {
+  await pool.end();
 }
-await pool?.end();

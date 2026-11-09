@@ -1,6 +1,6 @@
 # 数字孪生可视化系统
 
-**Digital Twin Visualization** · `digital-twin-visualization` · 服务端文件续建版 0.2.0
+**Digital Twin Visualization** · `digital-twin-visualization` · 采集与查询闭环版 0.3.0
 
 以用户最新要求为准，界面与功能**仅参考 Figma「新电子沙盘」Page（1393:37400）**，其余 Page 不参考。按左侧菜单顺序实现本地演示交互。
 
@@ -11,7 +11,7 @@
 | 点位管理 | 搜索/分类、录入/编辑、CSV 模板/预校验/确认导入/导出；模型与默认巡航视角；视频/PDF 关联和查看；Mock 观测摘要与趋势 |
 | 气象专题 | 四类专题切换，地图图层、重点站点、指标与列表联动；仅显示可追溯的 Mock 观测，不输出伪造风险范围与正式预警 |
 | 设备监控 | 原 Page 无独立画板，仅保留明确“设备源未接入”的页面，可检查真实本机 API 健康 |
-| 系统管理 | 依照现有管理目录提供演示用户/角色/状态维护、部署配置查看与导出、站点资料概览与导出 |
+| 系统管理 | 依照现有管理目录提供演示用户/角色/状态维护、部署配置查看与导出、站点资料概览与导出；采集任务、补数、定时计划、失败重试/取消、入库预览与地图数据模式 |
 
 **当前为本地演示工程，不能作为生产系统验收。** 气温/降水为示意色块，边框为示例范围。雷达、卫星、正式基础地理产品缺少授权源时显示未接入原因。
 
@@ -41,7 +41,8 @@ npx playwright install chromium
 npm run test:e2e     # 自动启动开发服务，验证关键链路和无公网请求
 # 也可使用本机已安装的 Google Chrome：
 PLAYWRIGHT_CHANNEL=chrome npm run test:e2e
-WORKER_ONCE=1 npm run worker  # 单次 Mock 采集，默认内存存储
+# 独立Worker需先配置 PG* 或 DATABASE_URL 并迁移数据库；本地开发由API内执行器处理
+WORKER_ONCE=1 npm run worker  # 单次领取队列，非按固定租户生成资料
 ```
 
 `npm run build` 输出 Web 到 `apps/web/dist`，服务端到 `dist/server`。Cesium 体积较大，已独立延迟加载；登录首屏不加载地图引擎。正式部署建议开启服务器 gzip。
@@ -71,7 +72,8 @@ npm run test:postgres  # 需要 Docker；临时 PostgreSQL 16 容器验证，结
 | --- | --- |
 | apps/web | Figma 登录与地图工作台，Cesium、本地资源 |
 | apps/core-api | NestJS 认证、租户/角色/场景授权、业务持久化与审计 |
-| apps/worker | Connector → 校验 → 原子入库/水位线，Mock/内存与 PostgreSQL 存储 |
+| apps/worker | PostgreSQL 持久队列执行入口与优雅退出 |
+| packages/ingestion | 逐小时任务状态机、文件/PG仓库、Mock连接器、租约/重试/取消与原子入库 |
 | packages/contracts | 场景 schema、图层、站点、观测契约与演示数据 |
 | packages/sdk | 受控地图接口、可取消图层生命周期、插件安装卸载 |
 | packages/plugins | 可独立构建的 station.popup 插槽插件样例 |
@@ -108,7 +110,40 @@ WMTS 使用 `type: "wmts"` 并配置 `url, layer, style, format, tileMatrixSetID
 - `GET /api/search?sceneId=xian&q=<图层/站点/经度,纬度>`
 
 客户端请求中的租户声明不授予权限；实际租户、角色和场景范围取自服务器会话。管理员为 admin，操作员 editor，只读 viewer；editor 可以改业务资料，不能改用户演示配置。
-示例时次为 2026-11-07 00:00–12:00，UTC+8。不存在的时次返回 404；不回退旧资料冒充当前时次。API 图层数据是 Mock 生成；Worker 写库是独立采集边界演示，尚未连到 API 查询，不能用 API 页面证明数据库采集链路已打通。
+固定演示模式时次为 2026-11-07 00:00–12:00，UTC+8；入库模式时次从当前租户/场景的观测库读取。图层 API 已消费采集入库资料；缺少指定时次返回 404，不生成替代资料。返回的 `storage` 区分 `generated` 与 `ingested`，两者当前均明确标记 `source=mock`。
+
+## 无天擎时的采集与补数
+
+进入 **系统管理 → 站点数据 → 采集与补数**：
+
+1. 点击“采集最新时次”，或指定北京时间整点范围提交补数（含首尾，最多168小时）。
+2. 任务逐小时提交观测与进度；5秒/10秒退避，当前小时连续3次失败进入失败队列。可以重试失败任务或取消未完成任务；已提交时次不会因后续失败回滚。
+3. 管理员可开启每小时 Mock 计划，停机后最多自动追补最近24小时；更早资料手动补数。停用计划不会取消已有任务。
+4. 预览入库观测，再勾选“使用入库观测”；地图、专题、摘要和趋势查询使用入库时次，空时次显示缺数。切换仅影响当前租户/场景。水位线表示最近成功小时，不表示较早资料连续无缺口；任务逐时进度用于定位未完成时次。
+
+默认固定演示模式，**不会自动生成客户采集任务，也不会尝试连接天擎**。Mock Connector 可替换为授权连接器；目前仅开放 Mock 源，未实现客户接口路径/签名或字段单位映射。
+
+开发文件模式由 API 内单进程执行器处理并保存 `DATA_DIR/ingestion.json`；每地区最多保留1000个观测时次。不要启动多个 API 进程共用开发文件目录。PostgreSQL 模式由独立 Worker 执行，观测与进度在一个事务提交；数据库行锁和120秒租约令牌防止重复领取或旧执行器回写。单次连接器调用限30秒。API 和 Worker 都必须应用003迁移后启动。
+
+每地区最多20个待完成任务，人工重试也受限；最多200条任务历史，优先淘汰已完成/已取消记录，失败任务保留处理。定时任务与同范围手动任务去重。采集配置按租户/场景隔离；写权限为 admin/editor，数据模式和定时计划仅 admin 可改。
+
+- `GET /api/scenes/:id/ingestion`：任务、进度、水位、模式、计划
+- `POST /api/scenes/:id/ingestion/jobs`：`{source:"mock",startTime,endTime}`，时次带时区且为整点
+- `POST /api/scenes/:id/ingestion/jobs/:jobId/retry`、`.../cancel`
+- `PUT /api/scenes/:id/ingestion/config`：`{mode:"demo"|"ingested",enabled?:boolean}`，字段可分别提交
+- `GET /api/scenes/:id/ingestion/observations?time=<ISO8601>`：直接预览入库结果，不受地图模式影响
+
+升级已有 Compose 数据卷时，先构建/加载0.3.0镜像（不会自动重启旧容器），再成套备份、停止写入端并显式迁移（**不可删卷代替升级**）：
+
+```bash
+scripts/backup.sh /absolute/path/pre-0.3-backup
+docker compose -f deploy/compose.yaml stop web core-api worker
+docker compose -f deploy/compose.yaml exec -T postgres psql -v ON_ERROR_STOP=1 -U dtv -d dtv < deploy/migrations/003_ingestion.sql
+# 构建/加载0.3.0镜像后启动；健康检查会验证采集表存在。
+docker compose -f deploy/compose.yaml up -d --no-build
+```
+
+旧观测的 scene_id 默认归入 xian，tenant_id 保持原值，不会迁给其他租户。现有队列状态来自新表，旧示例 ingest_job 保留但不再作为执行队列。开发文件模式完整备份需在 API 停止后保存整个 DATA_DIR（含业务、采集JSON及文件），Compose 备份脚本用于数据库部署。
 
 ## 插件示例
 
@@ -147,9 +182,11 @@ scripts/export-images.sh /absolute/path/offline-release
 ## 后续接入条件
 
 1. 正式身份体系与账号管理界面、许可证/套餐/数据集授权；文件容量配额、病毒扫描、跨实例一致性；实体化业务表和发布流程。
-2. 天擎现场 Connector、真实响应校验、分页、限流/重试、补数与监控；API 查询真实数据库。当前 Worker 与 Mock API 仍是独立边界演示。
+2. 天擎授权 Connector、真实响应/字段单位质量映射、分页与上游限流；多产品依赖、连续完整性检查、指标告警和规模性能。当前 Mock 采集、任务恢复、补数与 API 查库已打通。
 3. 内网天地图、地形与正式资源数据；设备监控的画板、协议和数据清单。
 4. 正式气象风险算法与预警源，不能以演示色块代替业务判断。
 5. 完成目标架构镜像、断公网、内网地图/天擎链路、备份恢复、性能与升级回滚验收。
 
 设计来源：[Figma 工作台](https://www.figma.com/design/2DzJheli9wLvLfhPkqgUBG?node-id=1784-23928) 与用户提供的总体技术方案。登录背景和图标从 Figma 下载到 `apps/web/public/design`，保留原文件；产品标识按用户要求使用统一项目名称。地图本身为 Cesium 动态渲染，不使用 Figma 地图截图。
+
+0.3.0 的测试与已知边界见 [采集查询闭环验收记录](docs/verification/采集查询闭环验收记录.md)。
