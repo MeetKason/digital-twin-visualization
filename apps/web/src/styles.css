@@ -770,6 +770,17 @@ button.primary {
 .station-details {
   z-index: 3;
 }
+.station-details-heading {
+  cursor: grab;
+  touch-action: none;
+  user-select: none;
+}
+.station-details-heading:active {
+  cursor: grabbing;
+}
+.station-details.is-positioned {
+  right: auto;
+}
 .station-details h2,
 .module-panel h2 {
   font-size: 20px;

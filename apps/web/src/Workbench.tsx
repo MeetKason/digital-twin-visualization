@@ -6,6 +6,7 @@ import {
   useEffect,
   useState,
   useRef,
+  type PointerEvent,
 } from "react";
 import type {
   SceneConfig,
@@ -547,6 +548,15 @@ function StationDetails({
 }) {
   const [frame, setFrame] = useState<DataFrame | null>(null),
     [error, setError] = useState("");
+  const [position, setPosition] = useState<{ x: number; y: number } | null>(
+    null,
+  );
+  const dragOrigin = useRef<{
+    pointerX: number;
+    pointerY: number;
+    panelX: number;
+    panelY: number;
+  } | null>(null);
   useEffect(() => {
     const ctrl = new AbortController();
     setFrame(null);
@@ -562,9 +572,64 @@ function StationDetails({
   const observation = frame?.observations.find(
     (o) => o.stationId === station.id,
   );
+
+  // 拖动只操作弹框自身的位置，限制在浏览器可视区域内，避免面板被拖出屏幕。
+  const startDragging = (event: PointerEvent<HTMLDivElement>) => {
+    if ((event.target as HTMLElement).closest("button")) return;
+    const panel = event.currentTarget.parentElement;
+    if (!panel) return;
+    dragOrigin.current = {
+      pointerX: event.clientX,
+      pointerY: event.clientY,
+      panelX: panel.offsetLeft,
+      panelY: panel.offsetTop,
+    };
+    setPosition({ x: panel.offsetLeft, y: panel.offsetTop });
+    event.currentTarget.setPointerCapture(event.pointerId);
+  };
+
+  const movePanel = (event: PointerEvent<HTMLDivElement>) => {
+    const origin = dragOrigin.current;
+    if (!origin) return;
+    const panel = event.currentTarget.parentElement;
+    if (!panel) return;
+    const bounds = panel.offsetParent as HTMLElement | null;
+    const maxX = Math.max(
+      0,
+      (bounds?.clientWidth ?? window.innerWidth) - panel.offsetWidth,
+    );
+    const maxY = Math.max(
+      0,
+      (bounds?.clientHeight ?? window.innerHeight) - panel.offsetHeight,
+    );
+    setPosition({
+      x: Math.min(
+        maxX,
+        Math.max(0, origin.panelX + event.clientX - origin.pointerX),
+      ),
+      y: Math.min(
+        maxY,
+        Math.max(0, origin.panelY + event.clientY - origin.pointerY),
+      ),
+    });
+  };
+
+  const stopDragging = () => {
+    dragOrigin.current = null;
+  };
+
   return (
-    <section className="station-details panel">
-      <div className="panel-heading">
+    <section
+      className={`station-details panel${position ? " is-positioned" : ""}`}
+      style={position ? { left: position.x, top: position.y } : undefined}
+    >
+      <div
+        className="panel-heading station-details-heading"
+        onPointerDown={startDragging}
+        onPointerMove={movePanel}
+        onPointerUp={stopDragging}
+        onPointerCancel={stopDragging}
+      >
         <strong>站点观测详情</strong>
         <button className="mini" aria-label="关闭站点详情" onClick={onClose}>
           关闭 <Icon name="close" size={14} />
