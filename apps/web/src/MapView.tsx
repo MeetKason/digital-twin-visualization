@@ -25,12 +25,22 @@ import {
   CesiumTerrainProvider,
   EllipsoidTerrainProvider,
   TileMapServiceImageryProvider,
+  ImageryLayer,
+  Credit,
+  CreditDisplay,
 } from "cesium";
 import "cesium/Build/Cesium/Widgets/widgets.css";
 import type { SceneConfig, Station, LayerDescriptor } from "@dtv/contracts";
 import { LayerRuntime, type LayerHandle, type MapFacade } from "@dtv/sdk";
 import { api, runtimeConfig } from "./api";
 import { distanceMeters, areaMeters, type Coordinate } from "@dtv/contracts";
+import {
+  BASEMAP_OPTIONS,
+  DEFAULT_BASEMAP,
+  createTiandituProvider,
+  tiandituLayer,
+  type BasemapType,
+} from "./tianditu";
 interface Props {
   scene: SceneConfig;
   stations: Station[];
@@ -55,10 +65,27 @@ export default function MapView({
   latestLayers.current = layers;
   const container = useRef<HTMLDivElement>(null),
     currentTime = useRef(time),
-    runtimeRef = useRef<LayerRuntime | null>(null);
+    runtimeRef = useRef<LayerRuntime | null>(null),
+    viewerRef = useRef<Viewer | null>(null),
+    basemapLayerRef = useRef<ImageryLayer | null>(null);
   const [notice, setNotice] = useState("正在初始化本地地图…");
   const [error, setError] = useState("");
+  const [tiandituEnabled, setTiandituEnabled] = useState(false);
+  const [basemapType, setBasemapType] = useState<BasemapType>(DEFAULT_BASEMAP);
   currentTime.current = time;
+  /** 切换底图时只替换基础影像层，气象图层和其他地图实体保持不变。 */
+  const changeBasemap = (nextType: BasemapType) => {
+    const currentViewer = viewerRef.current;
+    if (!currentViewer || !tiandituEnabled) return;
+    const nextLayer = currentViewer.imageryLayers.addImageryProvider(
+      createTiandituProvider(tiandituLayer(nextType)),
+      0,
+    );
+    const previousLayer = basemapLayerRef.current;
+    basemapLayerRef.current = nextLayer;
+    setBasemapType(nextType);
+    if (previousLayer) currentViewer.imageryLayers.remove(previousLayer, true);
+  };
   // 地图引擎只在地图组件挂载时加载；场景切换和卸载必须销毁 Viewer 与图层资源。
   useEffect(() => {
     let disposed = false;
@@ -79,6 +106,9 @@ export default function MapView({
       try {
         const config = await runtimeConfig();
         if (disposed || !container.current) return;
+        // 默认地图不调用 Cesium ion，因此移除 Cesium 自动添加的 ion 品牌标识。
+        // 数据源自己的版权署名仍走 CreditDisplay；若后续真正接入 ion，ion 返回的署名会再次显示。
+        CreditDisplay.cesiumCredit = new Credit("", true);
         viewer = new Viewer(container.current, {
           baseLayer: false,
           baseLayerPicker: false,
@@ -98,6 +128,7 @@ export default function MapView({
           contextOptions: { webgl: { alpha: false } },
         });
         const v = viewer;
+        viewerRef.current = v;
         v.scene.globe.baseColor = Color.fromCssColorString("#d9e6dd");
         v.scene.backgroundColor = Color.fromCssColorString("#d9e5ed");
         v.scene.globe.enableLighting = false;
@@ -109,27 +140,41 @@ export default function MapView({
         home();
         if (config.basemap) {
           const b = config.basemap;
-          const provider =
-            b.type === "wmts"
-              ? new WebMapTileServiceImageryProvider({
-                  url: b.url,
-                  layer: b.layer ?? "",
-                  style: b.style ?? "default",
-                  format: b.format ?? "image/png",
-                  tileMatrixSetID: b.tileMatrixSetID ?? "w",
-                })
-              : new UrlTemplateImageryProvider({ url: b.url });
-          v.imageryLayers.addImageryProvider(provider);
-          provider.errorEvent.addEventListener(() =>
-            setError("内网底图加载失败，请检查服务与权限"),
-          );
-          setNotice("内网底图 · 气象叠加为 Mock 示例");
+          if (b.type === "tianditu") {
+            const initialLayer = b.defaultLayer ?? "img_w";
+            const initialType = BASEMAP_OPTIONS.find(
+              (option) => tiandituLayer(option.key) === initialLayer,
+            )?.key ?? DEFAULT_BASEMAP;
+            basemapLayerRef.current = v.imageryLayers.addImageryProvider(
+              createTiandituProvider(initialLayer),
+              0,
+            );
+            setBasemapType(initialType);
+            setTiandituEnabled(true);
+            setNotice("天地图底图 · 气象叠加为 Mock 示例");
+          } else {
+            const provider =
+              b.type === "wmts"
+                ? new WebMapTileServiceImageryProvider({
+                    url: b.url ?? "",
+                    layer: b.layer ?? "",
+                    style: b.style ?? "default",
+                    format: b.format ?? "image/png",
+                    tileMatrixSetID: b.tileMatrixSetID ?? "w",
+                  })
+                : new UrlTemplateImageryProvider({ url: b.url ?? "" });
+            basemapLayerRef.current = v.imageryLayers.addImageryProvider(provider, 0);
+            provider.errorEvent.addEventListener(() =>
+              setError("内网底图加载失败，请检查服务与权限"),
+            );
+            setNotice("内网底图 · 气象叠加为 Mock 示例");
+          }
         } else {
           const provider = await TileMapServiceImageryProvider.fromUrl(
             "/cesium/Assets/Textures/NaturalEarthII",
           );
           if (disposed) return;
-          v.imageryLayers.addImageryProvider(provider);
+          basemapLayerRef.current = v.imageryLayers.addImageryProvider(provider, 0);
           setNotice("未配置内网天地图 · 本地低精度底图 / 示例数据");
         }
         if (config.terrainUrl) {
@@ -689,6 +734,8 @@ export default function MapView({
       stopCruise?.();
       runtime?.dispose();
       runtimeRef.current = null;
+      viewerRef.current = null;
+      basemapLayerRef.current = null;
       handler?.destroy();
       if (viewer && !viewer.isDestroyed()) viewer.destroy();
     };
@@ -717,6 +764,21 @@ export default function MapView({
         EPSG:4326 · {scene.center[0].toFixed(4)}°E，{scene.center[1].toFixed(4)}
         °N · 示例范围
       </div>
+      {tiandituEnabled && (
+        <div className="basemap-switcher" role="group" aria-label="切换天地图底图">
+          {BASEMAP_OPTIONS.map((option) => (
+            <button
+              key={option.key}
+              type="button"
+              className={basemapType === option.key ? "active" : ""}
+              aria-pressed={basemapType === option.key}
+              onClick={() => changeBasemap(option.key)}
+            >
+              {option.label}
+            </button>
+          ))}
+        </div>
+      )}
     </>
   );
 }

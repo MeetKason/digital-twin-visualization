@@ -1,6 +1,6 @@
 {
   "mode": "demo",
-  "basemap": null,
+  "basemap": { "type": "tianditu", "defaultLayer": "img_w" },
   "terrainUrl": null,
-  "notice": "未配置内网天地图 · 当前为本地示例，非业务实况"
+  "notice": "天地图底图 · 气象图层为 Mock 示例"
 }

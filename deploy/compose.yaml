@@ -40,6 +40,7 @@ services:
       COOKIE_SECURE: ${COOKIE_SECURE:-false}
       TRUST_PROXY_HOPS: "1"
       DTV_TIANQING_CONFIG_FILE: /run/dtv-tianqing/sources.json
+      TDT_API_KEY: ${TDT_API_KEY:-}
     volumes:
       - ./auth:/run/dtv-auth:rw
       - ./tianqing:/run/dtv-tianqing:ro

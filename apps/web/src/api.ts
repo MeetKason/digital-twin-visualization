@@ -48,12 +48,13 @@ export const api = {
 export interface RuntimeConfig {
   mode: "demo";
   basemap: null | {
-    type: "xyz" | "wmts";
-    url: string;
+    type: "xyz" | "wmts" | "tianditu";
+    url?: string;
     layer?: string;
     style?: string;
     format?: string;
     tileMatrixSetID?: string;
+    defaultLayer?: "img_w" | "vec_w" | "ter_w";
   };
   terrainUrl: string | null;
   notice: string;
@@ -61,7 +62,18 @@ export interface RuntimeConfig {
 export async function runtimeConfig(): Promise<RuntimeConfig> {
   const r = await fetch("/config.json");
   if (!r.ok) throw new Error("无法读取地图配置");
-  return r.json();
+  const config = (await r.json()) as RuntimeConfig;
+  if (config.basemap?.type !== "tianditu") return config;
+  const service = await fetch("/api/display-config");
+  const availability = service.ok
+    ? ((await service.json()) as { tiandituAvailable?: boolean })
+    : { tiandituAvailable: false };
+  if (availability.tiandituAvailable) return config;
+  return {
+    ...config,
+    basemap: null,
+    notice: "未配置天地图 Key · 当前使用本地低精度底图",
+  };
 }
 
 export interface SessionUser {

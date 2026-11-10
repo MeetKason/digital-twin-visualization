@@ -101,7 +101,7 @@ npm run test:postgres  # 需要 Docker；临时 PostgreSQL 16 容器验证，结
 
 ## 地图与现场配置
 
-编辑 `apps/web/public/config.json`；Compose 使用 `deploy/config.json` 挂载。默认 `basemap: null` 使用 Cesium 包内 NaturalEarthII 低精度底图，所有资源来自本机。不使用 ion、在线地理编码或公网瓦片。当前无地形，使用椭球。
+编辑 `apps/web/public/config.json`；Compose 使用 `deploy/config.json` 挂载。默认使用天地图影像底图，可在地图右下角切换矢量图、卫星图和地形晕渲。天地图 Key 通过 `deploy/.env` 的 `TDT_API_KEY` 只配置在 API 服务端，由登录后的同源瓦片代理附加；密钥不会下发浏览器或写入代码仓库。未配置 Key 时回退到 Cesium 包内 NaturalEarthII 低精度本地底图。天地图署名保留；当前不使用 Cesium ion。
 
 内网 XYZ 示例（占位地址需要替换）：
 
