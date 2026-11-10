@@ -1,4 +1,17 @@
 import { useCallback, useEffect, useState } from "react";
+import {
+  Alert,
+  Button,
+  Checkbox,
+  Form,
+  Input,
+  Popconfirm,
+  Select,
+  Space,
+  Table,
+  Tag,
+  type TableColumnsType,
+} from "antd";
 import { accountAdminApi, type ManagedAccount } from "../api";
 
 const scenes = ["xian", "taiyuan", "chengdu"] as const;
@@ -7,34 +20,26 @@ const sceneNames: Record<(typeof scenes)[number], string> = {
   taiyuan: "太原",
   chengdu: "成都",
 };
+const sceneOptions = scenes.map((value) => ({
+  label: sceneNames[value],
+  value,
+}));
 const roles: Record<ManagedAccount["role"], string> = {
   admin: "管理员",
   editor: "编辑员",
   viewer: "只读",
 };
-function sceneInput(value: string[], onChange: (next: string[]) => void) {
-  return (
-    <fieldset>
-      <legend>授权地区</legend>
-      {scenes.map((scene) => (
-        <label className="account-scene" key={scene}>
-          <input
-            type="checkbox"
-            checked={value.includes(scene)}
-            onChange={(e) =>
-              onChange(
-                e.target.checked
-                  ? [...value, scene]
-                  : value.filter((x) => x !== scene),
-              )
-            }
-          />
-          {sceneNames[scene]}
-        </label>
-      ))}
-    </fieldset>
-  );
-}
+const roleOptions = Object.entries(roles).map(([value, label]) => ({
+  value,
+  label,
+}));
+type AccountDraft = Omit<ManagedAccount, "id">;
+type CreateAccountForm = Pick<
+  ManagedAccount,
+  "id" | "tenantId" | "role" | "scenes"
+> & {
+  password: string;
+};
 
 export function AccountManagement() {
   const [accounts, setAccounts] = useState<ManagedAccount[]>([]);
@@ -42,13 +47,15 @@ export function AccountManagement() {
   const [notice, setNotice] = useState("");
   const [busy, setBusy] = useState(false);
   const [creating, setCreating] = useState(false);
-  const [draft, setDraft] = useState({
-    id: "",
-    tenantId: "default",
-    role: "viewer" as ManagedAccount["role"],
-    scenes: ["xian"],
-    password: "",
-  });
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [rowDraft, setRowDraft] = useState<AccountDraft | null>(null);
+  const [resettingId, setResettingId] = useState<string | null>(null);
+  const [password, setPassword] = useState("");
+  const [createForm] = Form.useForm<CreateAccountForm>();
+  const selectedScenes = Form.useWatch("scenes", createForm) as
+    | string[]
+    | undefined;
+
   const refresh = useCallback(async () => {
     // 用户清单只从管理员 API 读取，浏览器业务资料不参与身份授权。
     try {
@@ -61,6 +68,7 @@ export function AccountManagement() {
   useEffect(() => {
     void refresh();
   }, [refresh]);
+
   async function run(action: () => Promise<unknown>, message: string) {
     // 统一处理账号变更的忙碌态、服务端错误和成功后的列表刷新。
     setBusy(true);
@@ -70,289 +78,350 @@ export function AccountManagement() {
       await action();
       await refresh();
       setNotice(message);
+      return true;
     } catch (e) {
       setError((e as Error).message);
+      return false;
     } finally {
       setBusy(false);
     }
   }
-  return (
-    <div className="account-management">
-      <p className="data-disclaimer">
-        这里管理服务器真实登录账号、角色和地区授权。密码只在新建或重置时提交，服务端仅保存
-        scrypt 哈希；禁用账号会立即终止其后续请求。
-      </p>
-      <div className="account-toolbar">
-        <button className="primary" onClick={() => setCreating((v) => !v)}>
-          {creating ? "取消新增" : "新增登录账号"}
-        </button>
-        <button onClick={() => void refresh()}>刷新</button>
-      </div>
-      {error && (
-        <p role="alert" className="error-text">
-          {error}
-        </p>
-      )}
-      {notice && (
-        <p role="status" className="success-text">
-          {notice}
-        </p>
-      )}
-      {creating && (
-        <form
-          className="account-create"
-          onSubmit={(e) => {
-            e.preventDefault();
-            void run(async () => {
-              await accountAdminApi.create(draft);
-              setCreating(false);
-              setDraft({
-                id: "",
-                tenantId: "default",
-                role: "viewer",
-                scenes: ["xian"],
-                password: "",
-              });
-            }, "账号已创建");
-          }}
-        >
-          <label>
-            账号 ID
-            <input
-              required
-              minLength={2}
-              maxLength={64}
-              pattern="[A-Za-z0-9._-]+"
-              value={draft.id}
-              onChange={(e) => setDraft({ ...draft, id: e.target.value })}
-            />
-          </label>
-          <label>
-            租户 ID
-            <input
-              required
-              maxLength={64}
-              value={draft.tenantId}
-              onChange={(e) => setDraft({ ...draft, tenantId: e.target.value })}
-            />
-          </label>
-          <label>
-            角色
-            <select
-              value={draft.role}
-              onChange={(e) =>
-                setDraft({
-                  ...draft,
-                  role: e.target.value as ManagedAccount["role"],
-                })
-              }
-            >
-              {Object.entries(roles).map(([key, label]) => (
-                <option key={key} value={key}>
-                  {label}
-                </option>
-              ))}
-            </select>
-          </label>
-          {sceneInput(draft.scenes, (next) =>
-            setDraft({ ...draft, scenes: next }),
-          )}
-          <label>
-            初始密码（至少 12 位）
-            <input
-              required
-              minLength={12}
-              maxLength={128}
-              type="password"
-              autoComplete="new-password"
-              value={draft.password}
-              onChange={(e) => setDraft({ ...draft, password: e.target.value })}
-            />
-          </label>
-          <button
-            className="primary"
-            disabled={busy || draft.scenes.length === 0}
-          >
-            创建账号
-          </button>
-        </form>
-      )}
-      <div className="table-scroll">
-        <table>
-          <thead>
-            <tr>
-              <th>账号</th>
-              <th>租户</th>
-              <th>角色</th>
-              <th>地区授权</th>
-              <th>状态</th>
-              <th>账号操作</th>
-            </tr>
-          </thead>
-          <tbody>
-            {accounts.map((account) => (
-              <AccountRow
-                key={account.id}
-                account={account}
-                busy={busy}
-                onSave={(body) =>
-                  run(
-                    () => accountAdminApi.update(account.id, body),
-                    "账号权限已更新",
-                  )
-                }
-                onReset={(password) =>
-                  run(
-                    () => accountAdminApi.resetPassword(account.id, password),
-                    "密码已重置，原会话已失效",
-                  )
-                }
-              />
-            ))}
-          </tbody>
-        </table>
-      </div>
-      {!accounts.length && !error && <p className="muted">暂无账号。</p>}
-    </div>
-  );
-}
-function AccountRow({
-  account,
-  busy,
-  onSave,
-  onReset,
-}: {
-  account: ManagedAccount;
-  busy: boolean;
-  onSave: (body: Omit<ManagedAccount, "id">) => void;
-  onReset: (password: string) => void;
-}) {
-  const [editing, setEditing] = useState(false),
-    [password, setPassword] = useState(""),
-    [draft, setDraft] = useState({
+
+  const beginEdit = (account: ManagedAccount) => {
+    setEditingId(account.id);
+    setRowDraft({
       tenantId: account.tenantId,
       role: account.role,
       scenes: account.scenes,
       disabled: !!account.disabled,
     });
-  useEffect(
-    () =>
-      setDraft({
-        tenantId: account.tenantId,
-        role: account.role,
-        scenes: account.scenes,
-        disabled: !!account.disabled,
-      }),
-    [account],
-  );
-  const persist = () => onSave(draft);
-  return (
-    <tr>
-      <td>{account.id}</td>
-      <td>
-        {editing ? (
-          <input
+  };
+
+  const saveRow = async (account: ManagedAccount, draft = rowDraft) => {
+    if (!draft) return;
+    if (
+      await run(
+        () => accountAdminApi.update(account.id, draft),
+        "账号权限已更新",
+      )
+    ) {
+      setEditingId(null);
+      setRowDraft(null);
+    }
+  };
+
+  const columns: TableColumnsType<ManagedAccount> = [
+    {
+      title: "账号",
+      dataIndex: "id",
+      key: "id",
+      width: 130,
+    },
+    {
+      title: "租户",
+      dataIndex: "tenantId",
+      key: "tenantId",
+      width: 150,
+      render: (tenantId: string, account) =>
+        editingId === account.id ? (
+          <Input
             aria-label={`${account.id} 租户`}
-            value={draft.tenantId}
-            onChange={(e) => setDraft({ ...draft, tenantId: e.target.value })}
+            value={rowDraft?.tenantId ?? tenantId}
+            onChange={(event) =>
+              setRowDraft((draft) =>
+                draft ? { ...draft, tenantId: event.target.value } : draft,
+              )
+            }
           />
         ) : (
-          account.tenantId
-        )}
-      </td>
-      <td>
-        {editing ? (
-          <select
+          tenantId
+        ),
+    },
+    {
+      title: "角色",
+      dataIndex: "role",
+      key: "role",
+      width: 120,
+      render: (role: ManagedAccount["role"], account) =>
+        editingId === account.id ? (
+          <Select
             aria-label={`${account.id} 角色`}
-            value={draft.role}
-            onChange={(e) =>
-              setDraft({
-                ...draft,
-                role: e.target.value as ManagedAccount["role"],
-              })
+            value={rowDraft?.role ?? role}
+            options={roleOptions}
+            onChange={(value: ManagedAccount["role"]) =>
+              setRowDraft((draft) =>
+                draft ? { ...draft, role: value } : draft,
+              )
             }
+          />
+        ) : (
+          roles[role]
+        ),
+    },
+    {
+      title: "地区授权",
+      dataIndex: "scenes",
+      key: "scenes",
+      width: 230,
+      render: (authorizedScenes: string[], account) =>
+        editingId === account.id ? (
+          <Checkbox.Group
+            className="account-row-scenes"
+            aria-label={`${account.id} 地区授权`}
+            options={sceneOptions}
+            value={rowDraft?.scenes ?? authorizedScenes}
+            onChange={(value) =>
+              setRowDraft((draft) =>
+                draft ? { ...draft, scenes: value as string[] } : draft,
+              )
+            }
+          />
+        ) : (
+          authorizedScenes
+            .map(
+              (scene) => sceneNames[scene as keyof typeof sceneNames] ?? scene,
+            )
+            .join("、")
+        ),
+    },
+    {
+      title: "状态",
+      dataIndex: "disabled",
+      key: "disabled",
+      width: 90,
+      render: (disabled: boolean) =>
+        disabled ? <Tag>已停用</Tag> : <Tag color="green">启用</Tag>,
+    },
+    {
+      title: "账号操作",
+      key: "actions",
+      width: 300,
+      render: (_value, account) => {
+        const editing = editingId === account.id;
+        const currentDraft = editing ? rowDraft : null;
+        const accountPassword = resettingId === account.id ? password : "";
+        return (
+          <Space size={[6, 6]} wrap className="account-actions">
+            {editing ? (
+              <>
+                <Button
+                  type="primary"
+                  size="small"
+                  disabled={
+                    busy ||
+                    !currentDraft?.scenes.length ||
+                    !currentDraft?.tenantId.trim()
+                  }
+                  onClick={() => void saveRow(account)}
+                >
+                  保存
+                </Button>
+                <Button
+                  size="small"
+                  onClick={() => {
+                    setEditingId(null);
+                    setRowDraft(null);
+                  }}
+                >
+                  取消
+                </Button>
+              </>
+            ) : (
+              <>
+                <Button
+                  size="small"
+                  disabled={busy || editingId !== null}
+                  onClick={() => beginEdit(account)}
+                >
+                  编辑权限
+                </Button>
+                <Popconfirm
+                  title={account.disabled ? "启用此账号？" : "停用此账号？"}
+                  onConfirm={() =>
+                    void saveRow(account, {
+                      tenantId: account.tenantId,
+                      role: account.role,
+                      scenes: account.scenes,
+                      disabled: !account.disabled,
+                    })
+                  }
+                >
+                  <Button size="small" disabled={busy}>
+                    {account.disabled ? "启用" : "停用"}
+                  </Button>
+                </Popconfirm>
+                <Button
+                  size="small"
+                  disabled={busy}
+                  onClick={() => {
+                    setResettingId(
+                      resettingId === account.id ? null : account.id,
+                    );
+                    setPassword("");
+                  }}
+                >
+                  重置密码
+                </Button>
+                {resettingId === account.id && (
+                  <Space.Compact className="account-password-reset">
+                    <Input.Password
+                      aria-label={`${account.id} 新密码`}
+                      placeholder="至少 12 位新密码"
+                      minLength={12}
+                      maxLength={128}
+                      autoComplete="new-password"
+                      value={accountPassword}
+                      onChange={(event) => setPassword(event.target.value)}
+                    />
+                    <Button
+                      type="primary"
+                      disabled={busy || accountPassword.length < 12}
+                      onClick={async () => {
+                        if (
+                          await run(
+                            () =>
+                              accountAdminApi.resetPassword(
+                                account.id,
+                                accountPassword,
+                              ),
+                            "密码已重置，原会话已失效",
+                          )
+                        ) {
+                          setResettingId(null);
+                          setPassword("");
+                        }
+                      }}
+                    >
+                      确认
+                    </Button>
+                  </Space.Compact>
+                )}
+              </>
+            )}
+          </Space>
+        );
+      },
+    },
+  ];
+
+  return (
+    <div className="account-management">
+      <Alert
+        type="info"
+        showIcon
+        message={
+          <>
+            这里管理服务器真实登录账号、角色和地区授权。密码只在新建或重置时提交，服务端仅保存
+            scrypt 哈希；禁用账号会立即终止其后续请求。
+          </>
+        }
+      />
+      <Space className="account-toolbar" wrap>
+        <Button
+          type={creating ? "default" : "primary"}
+          onClick={() => {
+            if (creating) createForm.resetFields();
+            setCreating((value) => !value);
+          }}
+        >
+          {creating ? "取消新增" : "新增登录账号"}
+        </Button>
+        <Button loading={busy} onClick={() => void refresh()}>
+          刷新
+        </Button>
+      </Space>
+      {error && <Alert type="error" showIcon message={error} />}
+      {notice && <Alert type="success" showIcon message={notice} />}
+      {creating && (
+        <Form<CreateAccountForm>
+          form={createForm}
+          layout="vertical"
+          className="account-create"
+          initialValues={{
+            tenantId: "default",
+            role: "viewer",
+            scenes: ["xian"],
+          }}
+          onFinish={(values) =>
+            void run(async () => {
+              await accountAdminApi.create(values);
+              setCreating(false);
+              createForm.resetFields();
+            }, "账号已创建")
+          }
+        >
+          <Form.Item
+            label="账号 ID"
+            name="id"
+            rules={[
+              { required: true, message: "请输入账号 ID" },
+              { min: 2, max: 64, message: "账号 ID 长度须为 2 至 64 位" },
+              {
+                pattern: /^[A-Za-z0-9._-]+$/,
+                message: "仅支持字母、数字、点、下划线和连字符",
+              },
+            ]}
           >
-            {Object.entries(roles).map(([key, label]) => (
-              <option key={key} value={key}>
-                {label}
-              </option>
-            ))}
-          </select>
-        ) : (
-          roles[account.role]
-        )}
-      </td>
-      <td>
-        {editing
-          ? sceneInput(draft.scenes, (scenes) => setDraft({ ...draft, scenes }))
-          : account.scenes
-              .map((s) => sceneNames[s as keyof typeof sceneNames] ?? s)
-              .join("、")}
-      </td>
-      <td>{draft.disabled ? "停用" : "启用"}</td>
-      <td className="account-actions">
-        {editing ? (
-          <>
-            <button
-              disabled={busy || !draft.scenes.length || !draft.tenantId.trim()}
-              onClick={() => {
-                persist();
-                setEditing(false);
-              }}
-            >
-              保存
-            </button>
-            <button
-              onClick={() => {
-                setDraft({
-                  tenantId: account.tenantId,
-                  role: account.role,
-                  scenes: account.scenes,
-                  disabled: !!account.disabled,
-                });
-                setEditing(false);
-              }}
-            >
-              取消
-            </button>
-          </>
-        ) : (
-          <>
-            <button disabled={busy} onClick={() => setEditing(true)}>
-              编辑权限
-            </button>
-            <button
-              disabled={busy}
-              onClick={() => onSave({ ...draft, disabled: !draft.disabled })}
-            >
-              {draft.disabled ? "启用" : "停用"}
-            </button>
-          </>
-        )}
-        <details>
-          <summary>重置密码</summary>
-          <label className="password-reset">
-            新密码
-            <input
-              type="password"
-              minLength={12}
-              maxLength={128}
-              autoComplete="new-password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
+            <Input autoComplete="username" />
+          </Form.Item>
+          <Form.Item
+            label="租户 ID"
+            name="tenantId"
+            rules={[{ required: true, message: "请输入租户 ID" }]}
+          >
+            <Input maxLength={64} />
+          </Form.Item>
+          <Form.Item label="角色" name="role" rules={[{ required: true }]}>
+            <Select options={roleOptions} />
+          </Form.Item>
+          <Form.Item
+            label="授权地区"
+            name="scenes"
+            rules={[
+              {
+                validator: async (_rule, value: string[] | undefined) => {
+                  if (value?.length) return;
+                  throw new Error("请至少选择一个授权地区");
+                },
+              },
+            ]}
+          >
+            <Checkbox.Group
+              className="account-scene-group"
+              options={sceneOptions}
             />
-          </label>
-          <button
-            disabled={busy || password.length < 12}
-            onClick={() => {
-              onReset(password);
-              setPassword("");
-            }}
+          </Form.Item>
+          <Form.Item
+            label="初始密码（至少 12 位）"
+            name="password"
+            rules={[
+              { required: true, message: "请输入初始密码" },
+              { min: 12, max: 128, message: "密码长度须为 12 至 128 位" },
+            ]}
           >
-            确认重置
-          </button>
-        </details>
-      </td>
-    </tr>
+            <Input.Password autoComplete="new-password" />
+          </Form.Item>
+          <Button
+            className="account-create-submit"
+            type="primary"
+            htmlType="submit"
+            loading={busy}
+            disabled={!selectedScenes?.length}
+          >
+            创建账号
+          </Button>
+        </Form>
+      )}
+      <Table<ManagedAccount>
+        className="account-table"
+        rowKey="id"
+        columns={columns}
+        dataSource={accounts}
+        loading={busy && !creating}
+        pagination={{ pageSize: 10, hideOnSinglePage: true }}
+        scroll={{ x: 1020 }}
+        locale={{ emptyText: error ? "账号清单加载失败" : "暂无账号" }}
+      />
+    </div>
   );
 }

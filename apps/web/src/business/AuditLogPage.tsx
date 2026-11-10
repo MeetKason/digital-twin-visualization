@@ -1,4 +1,14 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
+import {
+  Alert,
+  Button,
+  Input,
+  Select,
+  Space,
+  Table,
+  Tag,
+  type TableColumnsType,
+} from "antd";
 import { auditApi, type AuditEntry } from "../api";
 
 const resultLabel: Record<string, string> = {
@@ -7,6 +17,45 @@ const resultLabel: Record<string, string> = {
   rejected: "未通过",
 };
 const columns = ["时间", "操作人", "地区", "操作", "结果"];
+const resultOptions = [
+  { value: "all", label: "全部结果" },
+  { value: "success", label: "成功" },
+  { value: "denied", label: "拒绝" },
+  { value: "rejected", label: "未通过" },
+];
+const tableColumns: TableColumnsType<AuditEntry> = [
+  {
+    title: "时间",
+    dataIndex: "at",
+    key: "at",
+    width: 200,
+    render: localTime,
+  },
+  { title: "操作人", dataIndex: "actor", key: "actor", width: 140 },
+  {
+    title: "地区",
+    dataIndex: "sceneId",
+    key: "sceneId",
+    width: 100,
+    render: (value: string) => value || "—",
+  },
+  { title: "操作", dataIndex: "action", key: "action" },
+  {
+    title: "结果",
+    dataIndex: "result",
+    key: "result",
+    width: 110,
+    render: (value: string) => (
+      <Tag
+        color={
+          value === "success" ? "green" : value === "denied" ? "red" : "orange"
+        }
+      >
+        {resultLabel[value] ?? value}
+      </Tag>
+    ),
+  },
+];
 function csvCell(value: unknown) {
   const text = String(value ?? "");
   const safe = /^[=+@-]/.test(text.trimStart()) ? `'${text}` : text;
@@ -88,83 +137,65 @@ export function AuditLogPage() {
         记录由服务端按当前登录租户提供，只读展示最近 500
         条。演示账号只能查看自己的隔离演示记录。
       </p>
-      <div className="audit-toolbar">
-        <label>
-          搜索操作人、地区或操作
-          <input
+      <Space className="audit-toolbar" wrap align="end">
+        <label className="audit-search-field">
+          <span>搜索操作人、地区或操作</span>
+          <Input
             value={query}
             onChange={(event) => setQuery(event.target.value)}
             placeholder="输入关键词"
+            allowClear
           />
         </label>
-        <label>
-          结果筛选
-          <select
+        <label className="audit-result-field">
+          <span>结果筛选</span>
+          <Select
             aria-label="结果筛选"
             value={result}
-            onChange={(event) => setResult(event.target.value)}
-          >
-            <option value="all">全部结果</option>
-            <option value="success">成功</option>
-            <option value="denied">拒绝</option>
-            <option value="rejected">未通过</option>
-          </select>
+            onChange={setResult}
+            options={resultOptions}
+          />
         </label>
-        <button onClick={() => void refresh()} disabled={loading}>
+        <Button onClick={() => void refresh()} loading={loading}>
           刷新
-        </button>
-        <button onClick={exportCsv} disabled={filtered.length === 0}>
+        </Button>
+        <Button onClick={exportCsv} disabled={filtered.length === 0}>
           导出 CSV
-        </button>
-      </div>
+        </Button>
+      </Space>
       {error && (
-        <div role="alert" className="error-text">
-          <p>{error}</p>
-          <button onClick={() => void refresh()}>重试</button>
-        </div>
+        <Alert
+          type="error"
+          showIcon
+          message={error}
+          action={
+            <Button size="small" onClick={() => void refresh()}>
+              重试
+            </Button>
+          }
+        />
       )}
-      {loading ? (
-        <p className="muted" role="status">
-          正在加载审计记录…
-        </p>
-      ) : (
-        <div className="table-scroll audit-table-wrap">
-          <table aria-label="审计记录">
-            <thead>
-              <tr>
-                {columns.map((column) => (
-                  <th key={column}>{column}</th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {filtered.map((entry) => (
-                <tr key={entry.id}>
-                  <td>{localTime(entry.at)}</td>
-                  <td>{entry.actor}</td>
-                  <td>{entry.sceneId || "—"}</td>
-                  <td>{entry.action}</td>
-                  <td>{resultLabel[entry.result] ?? entry.result}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-          {!filtered.length && (
-            <p className="muted audit-empty">
-              {error
-                ? ""
-                : entries.length
-                  ? "没有符合筛选条件的记录。"
-                  : "暂无审计记录。"}
-            </p>
-          )}
-        </div>
-      )}
-      {!loading && (
-        <p className="muted">
-          显示 {filtered.length} / {entries.length} 条
-        </p>
-      )}
+      <Table<AuditEntry>
+        className="audit-table"
+        aria-label="审计记录"
+        rowKey="id"
+        columns={tableColumns}
+        dataSource={filtered}
+        loading={loading}
+        scroll={{ x: 760 }}
+        pagination={{
+          pageSize: 20,
+          hideOnSinglePage: true,
+          showTotal: (total) => `共 ${total} 条`,
+        }}
+        locale={{
+          emptyText: error
+            ? "审计记录加载失败"
+            : entries.length
+              ? "没有符合筛选条件的记录"
+              : "暂无审计记录",
+        }}
+      />
     </section>
   );
 }

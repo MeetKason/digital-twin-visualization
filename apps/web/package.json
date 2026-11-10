@@ -9,6 +9,7 @@
     "preview": "vite preview --host 127.0.0.1"
   },
   "dependencies": {
+    "antd": "6.7.0",
     "pako": "3.0.3"
   }
 }

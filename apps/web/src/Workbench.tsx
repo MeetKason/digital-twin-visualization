@@ -30,10 +30,19 @@ import {
 import { CruisePanel } from "./business/CruisePanel";
 import { StationPage } from "./business/StationPage";
 import { WeatherPage } from "./business/WeatherPage";
-import { SettingsPage, DevicePage } from "./business/SettingsPage";
 import { beijingTime } from "./time";
 import { readFile } from "./business/files";
 const MapView = lazy(() => import("./MapView"));
+const SettingsPage = lazy(() =>
+  import("./business/SettingsPage").then((module) => ({
+    default: module.SettingsPage,
+  })),
+);
+const DevicePage = lazy(() =>
+  import("./business/SettingsPage").then((module) => ({
+    default: module.DevicePage,
+  })),
+);
 const navigation = [
   ["home", "总览地图"],
   ["roam", "路径漫游"],
@@ -478,9 +487,15 @@ function WorkArea({ scene }: { scene: SceneConfig }) {
             time={time}
           />
         )}
-        {activeMenu === "device" && <DevicePage sceneId={scene.id} />}
+        {activeMenu === "device" && (
+          <Suspense fallback={<p className="muted">正在加载设备监控…</p>}>
+            <DevicePage sceneId={scene.id} />
+          </Suspense>
+        )}
         {activeMenu === "settings" && (
-          <SettingsPage business={business} onDataChanged={onDataChanged} />
+          <Suspense fallback={<p className="muted">正在加载系统设置…</p>}>
+            <SettingsPage business={business} onDataChanged={onDataChanged} />
+          </Suspense>
         )}
         {modelError && (
           <p role="alert" className="business-storage-error">

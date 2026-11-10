@@ -1,7 +1,19 @@
 import { useEffect, useRef, useState } from "react";
+import {
+  Alert,
+  Button,
+  Input,
+  Select,
+  Space,
+  Switch,
+  Table,
+  Tag,
+  type TableColumnsType,
+} from "antd";
 import type {
   DataFrame,
   IngestionHealth,
+  IngestionJob,
   IngestionStatus,
 } from "@dtv/contracts";
 import { authApi, type SessionUser } from "../api";
@@ -114,7 +126,9 @@ export function IngestionPanel({
       })
       .catch(() => {});
     void json<IngestionProductOption[]>(base + "/products", controller.signal)
-      .then((items) => { if (!controller.signal.aborted) setProducts(items); })
+      .then((items) => {
+        if (!controller.signal.aborted) setProducts(items);
+      })
       .catch(() => {});
     void refreshStatus();
     void refreshHealth();
@@ -132,9 +146,10 @@ export function IngestionPanel({
     setBusy(true);
     setError("");
     try {
-      const payload = body && typeof body === "object"
-        ? { ...(body as Record<string, unknown>), productId }
-        : body;
+      const payload =
+        body && typeof body === "object"
+          ? { ...(body as Record<string, unknown>), productId }
+          : body;
       await json(base + path, undefined, method, payload);
       onDataChanged();
       if (!alive.current) return;
@@ -152,16 +167,141 @@ export function IngestionPanel({
     }
   }
   const writable = role === "admin" || role === "editor";
+  const jobColumns: TableColumnsType<IngestionJob> = [
+    {
+      title: "时次区间（北京时间）",
+      key: "range",
+      width: 230,
+      render: (_value, job) => (
+        <>
+          {display(job.startTime)}
+          <br />
+          {display(job.endTime)}
+          <small>
+            {sourceName(job.source)} ·{" "}
+            {job.kind === "scheduled" ? "定时" : "手动"}
+          </small>
+        </>
+      ),
+    },
+    {
+      title: "状态",
+      dataIndex: "status",
+      key: "status",
+      width: 110,
+      render: (value: IngestionJob["status"]) => {
+        const color =
+          value === "succeeded"
+            ? "green"
+            : value === "failed"
+              ? "red"
+              : value === "running"
+                ? "blue"
+                : value === "retrying"
+                  ? "orange"
+                  : undefined;
+        return <Tag color={color}>{labels[value]}</Tag>;
+      },
+    },
+    {
+      title: "进度",
+      key: "progress",
+      width: 120,
+      render: (_value, job) => (
+        <>
+          {job.completedHours}/{job.totalHours} 小时
+          <br />
+          {job.rowCount} 条
+        </>
+      ),
+    },
+    {
+      title: "本小时尝试",
+      dataIndex: "attempts",
+      key: "attempts",
+      width: 110,
+      render: (value: number) => `${value}/3`,
+    },
+    {
+      title: "错误",
+      dataIndex: "error",
+      key: "error",
+      width: 220,
+      render: (value: string | null) => value ?? "—",
+    },
+    {
+      title: "操作",
+      key: "actions",
+      width: 180,
+      render: (_value, job) => (
+        <Space wrap size={[4, 6]}>
+          {job.status === "failed" && (
+            <Button
+              size="small"
+              disabled={busy || !writable}
+              onClick={() => void action(`/jobs/${job.id}/retry`, "POST")}
+            >
+              重试任务
+            </Button>
+          )}
+          {!(["succeeded", "cancelled"] as string[]).includes(job.status) && (
+            <Button
+              size="small"
+              danger
+              disabled={busy || !writable}
+              onClick={() => void action(`/jobs/${job.id}/cancel`, "POST")}
+            >
+              取消任务
+            </Button>
+          )}
+        </Space>
+      ),
+    },
+  ];
+  const observationColumns: TableColumnsType<
+    DataFrame["observations"][number]
+  > = [
+    { title: "站号", dataIndex: "stationId", key: "stationId", width: 160 },
+    {
+      title: "气温 °C",
+      key: "temperatureC",
+      render: (_value, row) => row.elements.temperatureC ?? "—",
+    },
+    {
+      title: "小时降水 mm",
+      key: "rainfallMm",
+      render: (_value, row) => row.elements.rainfallMm ?? "—",
+    },
+    {
+      title: "风速 m/s",
+      key: "windSpeedMs",
+      render: (_value, row) => row.elements.windSpeedMs ?? "—",
+    },
+  ];
   return (
     <section className="ingestion-panel" aria-label="采集与补数管理">
       <h3>采集与补数</h3>
-      <label>
+      <label className="ingestion-product-control">
         采集产品
-        <select value={productId} disabled={busy} onChange={(event) => setProductId(event.target.value)}>
-          {products.map((product) => <option key={product.id} value={product.id} disabled={!product.available}>{product.label}{product.available ? "" : "（未接入）"}</option>)}
-        </select>
+        <Select
+          value={productId}
+          disabled={busy}
+          onChange={setProductId}
+          options={products.map((product) => ({
+            value: product.id,
+            label: `${product.label}${product.available ? "" : "（未接入）"}`,
+            disabled: !product.available,
+          }))}
+        />
       </label>
-      {products.find((product) => product.id === productId)?.available === false && <p className="muted">该产品尚无可用连接器，不能创建采集任务或启用计划。</p>}
+      {products.find((product) => product.id === productId)?.available ===
+        false && (
+        <Alert
+          type="warning"
+          showIcon
+          message="该产品尚无可用连接器，不能创建采集任务或启用计划。"
+        />
+      )}
       <p className="data-disclaimer">
         当前源：{sourceName(status?.source)}。
         {status?.source === "tianqing"
@@ -197,47 +337,59 @@ export function IngestionPanel({
               {health.missingTimes.map((time) => display(time)).join("、")}
             </p>
           )}
-          <small>状态检查 {display(health.checkedAt)} · 来源 {sourceName(health.source)}</small>
+          <small>
+            状态检查 {display(health.checkedAt)} · 来源{" "}
+            {sourceName(health.source)}
+          </small>
         </section>
       )}
       <dl>
         <dt>数据模式</dt>
         <dd>
-          {status?.mode === "ingested" ? `入库观测（${sourceName(status.source)}）` : "固定演示数据"}
+          {status?.mode === "ingested"
+            ? `入库观测（${sourceName(status.source)}）`
+            : "固定演示数据"}
         </dd>
         <dt>最近成功入库时次</dt>
         <dd>{display(status?.watermark ?? null)}</dd>
         <dt>最近成功时间</dt>
         <dd>{display(status?.lastSuccessAt ?? null)}</dd>
       </dl>
-      <label>
-        <input
-          type="checkbox"
+      <div className="ingestion-setting-row">
+        <Switch
+          aria-label="使用入库观测"
           disabled={busy || role !== "admin" || !status}
           checked={status?.mode === "ingested"}
-          onChange={(e) =>
+          onChange={(checked) =>
             void action("/config", "PUT", {
-              mode: e.target.checked ? "ingested" : "demo",
+              mode: checked ? "ingested" : "demo",
             })
           }
         />
         使用入库观测
-      </label>
-      <label>
-        <input
-          type="checkbox"
-          disabled={busy || role !== "admin" || !status || products.find((product) => product.id === productId)?.available === false}
+      </div>
+      <div className="ingestion-setting-row">
+        <Switch
+          aria-label="启用每小时定时采集"
+          disabled={
+            busy ||
+            role !== "admin" ||
+            !status ||
+            products.find((product) => product.id === productId)?.available ===
+              false
+          }
           checked={status?.schedule.enabled ?? false}
-          onChange={(e) =>
-            void action("/config", "PUT", { enabled: e.target.checked })
+          onChange={(checked) =>
+            void action("/config", "PUT", { enabled: checked })
           }
         />
         启用每小时定时采集（{sourceName(status?.source)}）
-      </label>
+      </div>
       <p className="muted">
         仅管理员能切换模式与定时计划。入库模式无资料时显示缺数；定时计划停机后最多自动追补最近24小时，更早时次请手动补数。自动计划领取后创建的任务需单独取消，关闭计划不会取消已有任务。
       </p>
-      <button
+      <Button
+        type="primary"
         disabled={busy || !writable || !status}
         onClick={() => {
           const time = new Date(
@@ -252,7 +404,7 @@ export function IngestionPanel({
         }}
       >
         采集最新时次
-      </button>
+      </Button>
       <form
         onSubmit={(e) => {
           e.preventDefault();
@@ -267,7 +419,7 @@ export function IngestionPanel({
         <div className="form-grid">
           <label>
             补数开始（北京时间）
-            <input
+            <Input
               required
               type="datetime-local"
               step="3600"
@@ -277,7 +429,7 @@ export function IngestionPanel({
           </label>
           <label>
             补数结束（北京时间）
-            <input
+            <Input
               required
               type="datetime-local"
               step="3600"
@@ -286,79 +438,36 @@ export function IngestionPanel({
             />
           </label>
         </div>
-        <button className="primary" disabled={busy || !writable || !status}>
+        <Button
+          type="primary"
+          htmlType="submit"
+          disabled={busy || !writable || !status}
+        >
           提交补数任务
-        </button>
+        </Button>
       </form>
       {error && (
-        <p className="error-text" role="alert">
-          {error}；状态可能未刷新，稍后重新进入此栏目可重试。
-        </p>
+        <Alert
+          type="error"
+          showIcon
+          message={`${error}；状态可能未刷新，稍后重新进入此栏目可重试。`}
+        />
       )}
       {!status ? (
         <p>正在读取采集队列…</p>
       ) : (
         <>
-          {!status.jobs.length && <p>暂无采集任务</p>}
-          <div className="ingestion-jobs">
-            <table>
-              <thead>
-                <tr>
-                  <th>时次区间（北京时间）</th>
-                  <th>状态</th>
-                  <th>进度</th>
-                  <th>本小时尝试</th>
-                  <th>错误</th>
-                  <th>操作</th>
-                </tr>
-              </thead>
-              <tbody>
-                {status.jobs.map((job) => (
-                  <tr key={job.id}>
-                    <td>
-                      {display(job.startTime)}
-                      <br />
-                      {display(job.endTime)}
-                      <small>
-                        {sourceName(job.source)} · {job.kind === "scheduled" ? "定时" : "手动"}
-                      </small>
-                    </td>
-                    <td>{labels[job.status]}</td>
-                    <td>
-                      {job.completedHours}/{job.totalHours} 小时
-                      <br />
-                      {job.rowCount} 条
-                    </td>
-                    <td>{job.attempts}/3</td>
-                    <td>{job.error ?? "—"}</td>
-                    <td>
-                      {job.status === "failed" && (
-                        <button
-                          disabled={busy || !writable}
-                          onClick={() =>
-                            void action(`/jobs/${job.id}/retry`, "POST")
-                          }
-                        >
-                          重试任务
-                        </button>
-                      )}
-                      {!["succeeded", "cancelled"].includes(job.status) && (
-                        <button
-                          disabled={busy || !writable}
-                          onClick={() =>
-                            void action(`/jobs/${job.id}/cancel`, "POST")
-                          }
-                        >
-                          取消任务
-                        </button>
-                      )}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-          <button
+          <Table<IngestionJob>
+            className="ingestion-table"
+            rowKey="id"
+            columns={jobColumns}
+            dataSource={status.jobs}
+            loading={busy}
+            scroll={{ x: 920 }}
+            pagination={{ pageSize: 8, hideOnSinglePage: true }}
+            locale={{ emptyText: "暂无采集任务" }}
+          />
+          <Button
             disabled={!status.watermark || busy}
             onClick={() => {
               setBusy(true);
@@ -383,33 +492,22 @@ export function IngestionPanel({
             }}
           >
             预览最近入库时次
-          </button>
+          </Button>
           {frame && (
             <div aria-label="入库数据预览">
               <p>
-                {sourceName(frame.source)} · {display(frame.observedAt)} · {frame.observations.length}{" "}
-                条（{frame.storage === "ingested" ? "入库观测" : "固定演示"}）
+                {sourceName(frame.source)} · {display(frame.observedAt)} ·{" "}
+                {frame.observations.length} 条（
+                {frame.storage === "ingested" ? "入库观测" : "固定演示"}）
               </p>
-              <table>
-                <thead>
-                  <tr>
-                    <th>站号</th>
-                    <th>气温 °C</th>
-                    <th>小时降水 mm</th>
-                    <th>风速 m/s</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {frame.observations.map((row) => (
-                    <tr key={row.stationId}>
-                      <td>{row.stationId}</td>
-                      <td>{row.elements.temperatureC ?? "—"}</td>
-                      <td>{row.elements.rainfallMm ?? "—"}</td>
-                      <td>{row.elements.windSpeedMs ?? "—"}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+              <Table<DataFrame["observations"][number]>
+                className="ingestion-preview-table"
+                size="small"
+                rowKey="stationId"
+                columns={observationColumns}
+                dataSource={frame.observations}
+                pagination={{ pageSize: 8, hideOnSinglePage: true }}
+              />
             </div>
           )}
         </>

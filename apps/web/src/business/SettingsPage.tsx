@@ -1,10 +1,16 @@
-import { useCallback, useEffect, useState } from "react";
+import { lazy, Suspense, useCallback, useEffect, useState } from "react";
+import { Alert, Button, ConfigProvider, Menu } from "antd";
+import zhCN from "antd/locale/zh_CN";
 import type { Business } from "./useBusiness";
 import { download } from "./useBusiness";
 import { IngestionPanel } from "./IngestionPanel";
-import { AccountManagement } from "./AccountManagement";
 import { AuditLogPage } from "./AuditLogPage";
 import { PublicationPage } from "./PublicationPage";
+const AccountManagement = lazy(() =>
+  import("./AccountManagement").then((module) => ({
+    default: module.AccountManagement,
+  })),
+);
 const sections = [
   "用户管理",
   "部署服务配置",
@@ -40,102 +46,109 @@ export function SettingsPage({
   const auditSection = section === "操作审计";
   const publicationSection = section === "发布管理";
   return (
-    <section className="business-page settings-page">
-      <aside className="panel">
-        <div className="panel-heading">
-          <strong>管理目录</strong>
-        </div>
-        <div className="panel-body">
-          {sections.map((s) => (
-            <button
-              className={`catalog-card ${s === section ? "active" : ""}`}
-              key={s}
-              onClick={() => setSection(s)}
-            >
-              {s}
-            </button>
-          ))}
-        </div>
-      </aside>
-      <section className="panel">
-        <div className="panel-heading">
-          <strong>{section}</strong>
-          <span>
-            {accountSection
-              ? "真实登录账号与权限"
-              : auditSection
-                ? "租户范围内的服务端操作记录"
-                : publicationSection
-                  ? "修订快照与发布历史"
-                : section === "站点数据"
-                  ? "服务端资料与采集"
-                  : "演示配置"}
-          </span>
-        </div>
-        <div className="panel-body">
-          {accountSection ? (
-            <AccountManagement />
-          ) : auditSection ? (
-            <AuditLogPage />
-          ) : publicationSection ? (
-            <PublicationPage business={business} />
-          ) : section === "部署服务配置" ? (
-            <>
-              <h3>当前地图服务配置</h3>
-              <pre className="config-view">
-                {JSON.stringify(config, null, 2)}
-              </pre>
-              <p className="muted">
-                部署配置由项目 config.json
-                管理；浏览器不保存天擎凭据。修改地址前需要现场服务资料。
-              </p>
-              <button
-                onClick={() =>
-                  download(
-                    "地图配置.json",
-                    JSON.stringify(config, null, 2),
-                    "application/json",
-                  )
-                }
-              >
-                导出当前配置
-              </button>
-            </>
-          ) : (
-            <>
-              <IngestionPanel
-                sceneId={business.sceneId}
-                onDataChanged={onDataChanged}
-              />
-              <p>
-                站点 {business.data.stations.length} 个 · 方案{" "}
-                {business.data.plans.length} 个 · 视角{" "}
-                {business.data.bookmarks.length} 个
-              </p>
-              <button
-                onClick={() =>
-                  download(
-                    "本地演示资料.json",
-                    JSON.stringify(business.data, null, 2),
-                    "application/json",
-                  )
-                }
-              >
-                导出本地演示资料
-              </button>
-              <p className="muted">
-                文件仅包含业务元数据，不包含服务器或旧浏览器中的模型和附件二进制；完整备份使用服务器成套备份脚本。
-              </p>
-            </>
-          )}
-          {error && (
-            <p role="alert" className="error-text">
-              {error}
-            </p>
-          )}
-        </div>
+    <ConfigProvider
+      locale={zhCN}
+      theme={{
+        token: {
+          colorPrimary: "#1263c4",
+          borderRadius: 4,
+          fontFamily: '"PingFang SC", "Microsoft YaHei", Arial, sans-serif',
+        },
+      }}
+    >
+      <section className="business-page settings-page">
+        <aside className="panel">
+          <div className="panel-heading">
+            <strong>管理目录</strong>
+          </div>
+          <div className="panel-body">
+            <Menu
+              className="settings-menu"
+              mode="inline"
+              selectedKeys={[section]}
+              items={sections.map((s) => ({ key: s, label: s }))}
+              onClick={({ key }) => setSection(key)}
+            />
+          </div>
+        </aside>
+        <section className="panel">
+          <div className="panel-heading">
+            <strong>{section}</strong>
+            <span>
+              {accountSection
+                ? "真实登录账号与权限"
+                : auditSection
+                  ? "租户范围内的服务端操作记录"
+                  : publicationSection
+                    ? "修订快照与发布历史"
+                    : section === "站点数据"
+                      ? "服务端资料与采集"
+                      : "演示配置"}
+            </span>
+          </div>
+          <div className="panel-body">
+            {accountSection ? (
+              <Suspense fallback={<p className="muted">正在加载账号管理…</p>}>
+                <AccountManagement />
+              </Suspense>
+            ) : auditSection ? (
+              <AuditLogPage />
+            ) : publicationSection ? (
+              <PublicationPage business={business} />
+            ) : section === "部署服务配置" ? (
+              <>
+                <h3>当前地图服务配置</h3>
+                <pre className="config-view">
+                  {JSON.stringify(config, null, 2)}
+                </pre>
+                <p className="muted">
+                  部署配置由项目 config.json
+                  管理；浏览器不保存天擎凭据。修改地址前需要现场服务资料。
+                </p>
+                <Button
+                  onClick={() =>
+                    download(
+                      "地图配置.json",
+                      JSON.stringify(config, null, 2),
+                      "application/json",
+                    )
+                  }
+                >
+                  导出当前配置
+                </Button>
+              </>
+            ) : (
+              <>
+                <IngestionPanel
+                  sceneId={business.sceneId}
+                  onDataChanged={onDataChanged}
+                />
+                <p>
+                  站点 {business.data.stations.length} 个 · 方案{" "}
+                  {business.data.plans.length} 个 · 视角{" "}
+                  {business.data.bookmarks.length} 个
+                </p>
+                <Button
+                  onClick={() =>
+                    download(
+                      "本地演示资料.json",
+                      JSON.stringify(business.data, null, 2),
+                      "application/json",
+                    )
+                  }
+                >
+                  导出本地演示资料
+                </Button>
+                <p className="muted">
+                  文件仅包含业务元数据，不包含服务器或旧浏览器中的模型和附件二进制；完整备份使用服务器成套备份脚本。
+                </p>
+              </>
+            )}
+            {error && <Alert type="error" showIcon message={error} />}
+          </div>
+        </section>
       </section>
-    </section>
+    </ConfigProvider>
   );
 }
 
@@ -145,11 +158,20 @@ export function DevicePage({ sceneId }: { sceneId: string }) {
       mode: string;
       version: string;
     } | null>(null),
-    [devices, setDevices] = useState<{
-      id: string; name: string; type: string; status: "online" | "warning" | "offline";
-      temperatureC: number; batteryPercent: number; signalDbm: number;
-      lastSeenAt: string; source: "mock"; protocol: string;
-    }[]>([]),
+    [devices, setDevices] = useState<
+      {
+        id: string;
+        name: string;
+        type: string;
+        status: "online" | "warning" | "offline";
+        temperatureC: number;
+        batteryPercent: number;
+        signalDbm: number;
+        lastSeenAt: string;
+        source: "mock";
+        protocol: string;
+      }[]
+    >([]),
     [error, setError] = useState("");
   const refresh = useCallback(async () => {
     try {
@@ -157,8 +179,12 @@ export function DevicePage({ sceneId }: { sceneId: string }) {
         fetch("/api/health"),
         fetch(`/api/scenes/${encodeURIComponent(sceneId)}/devices`),
       ]);
-      if (!healthResponse.ok || !devicesResponse.ok) throw new Error("设备模拟数据不可用");
-      const [nextHealth, nextDevices] = await Promise.all([healthResponse.json(), devicesResponse.json()]);
+      if (!healthResponse.ok || !devicesResponse.ok)
+        throw new Error("设备模拟数据不可用");
+      const [nextHealth, nextDevices] = await Promise.all([
+        healthResponse.json(),
+        devicesResponse.json(),
+      ]);
       setHealth(nextHealth);
       setDevices(nextDevices);
       setError("");
@@ -173,9 +199,17 @@ export function DevicePage({ sceneId }: { sceneId: string }) {
     return () => clearInterval(timer);
   }, [refresh]);
   const online = devices.filter((device) => device.status === "online").length;
-  const warning = devices.filter((device) => device.status === "warning").length;
-  const offline = devices.filter((device) => device.status === "offline").length;
-  const statusLabel = { online: "在线（Mock）", warning: "告警（Mock）", offline: "离线（Mock）" };
+  const warning = devices.filter(
+    (device) => device.status === "warning",
+  ).length;
+  const offline = devices.filter(
+    (device) => device.status === "offline",
+  ).length;
+  const statusLabel = {
+    online: "在线（Mock）",
+    warning: "告警（Mock）",
+    offline: "离线（Mock）",
+  };
   return (
     <section className="business-page device-page panel">
       <div className="panel-heading">
@@ -186,8 +220,14 @@ export function DevicePage({ sceneId }: { sceneId: string }) {
       </div>
       <div className="panel-body">
         <h2>设备监控 · Mock 演示</h2>
-        <p className="data-disclaimer">以下设备、心跳和遥测均为确定性模拟数据，仅用于页面与告警交互验收，不代表真实设备接入状态；视频流和真实协议尚未接入。</p>
-        {error && <p role="alert" className="error-text">{error}</p>}
+        <p className="data-disclaimer">
+          以下设备、心跳和遥测均为确定性模拟数据，仅用于页面与告警交互验收，不代表真实设备接入状态；视频流和真实协议尚未接入。
+        </p>
+        {error && (
+          <p role="alert" className="error-text">
+            {error}
+          </p>
+        )}
         <div className="ingestion-metrics">
           <span>设备总数 {devices.length}</span>
           <span>在线 {online}</span>
@@ -196,12 +236,40 @@ export function DevicePage({ sceneId }: { sceneId: string }) {
         </div>
         <div className="table-scroll">
           <table aria-label="Mock 设备遥测清单">
-            <thead><tr><th>设备</th><th>类型</th><th>状态</th><th>温度</th><th>电池</th><th>信号</th><th>最近心跳</th><th>数据源</th></tr></thead>
-            <tbody>{devices.map((device) => <tr key={device.id} data-status={device.status}>
-              <td>{device.name}<small>{device.id}</small></td><td>{device.type}</td><td>{statusLabel[device.status]}</td>
-              <td>{device.temperatureC.toFixed(1)} °C</td><td>{device.batteryPercent}%</td><td>{device.signalDbm} dBm</td>
-              <td>{new Date(device.lastSeenAt).toLocaleString("zh-CN", { timeZone: "Asia/Shanghai", hour12: false })}</td><td>{device.protocol}</td>
-            </tr>)}</tbody>
+            <thead>
+              <tr>
+                <th>设备</th>
+                <th>类型</th>
+                <th>状态</th>
+                <th>温度</th>
+                <th>电池</th>
+                <th>信号</th>
+                <th>最近心跳</th>
+                <th>数据源</th>
+              </tr>
+            </thead>
+            <tbody>
+              {devices.map((device) => (
+                <tr key={device.id} data-status={device.status}>
+                  <td>
+                    {device.name}
+                    <small>{device.id}</small>
+                  </td>
+                  <td>{device.type}</td>
+                  <td>{statusLabel[device.status]}</td>
+                  <td>{device.temperatureC.toFixed(1)} °C</td>
+                  <td>{device.batteryPercent}%</td>
+                  <td>{device.signalDbm} dBm</td>
+                  <td>
+                    {new Date(device.lastSeenAt).toLocaleString("zh-CN", {
+                      timeZone: "Asia/Shanghai",
+                      hour12: false,
+                    })}
+                  </td>
+                  <td>{device.protocol}</td>
+                </tr>
+              ))}
+            </tbody>
           </table>
         </div>
         <h3>本机 API 健康</h3>
