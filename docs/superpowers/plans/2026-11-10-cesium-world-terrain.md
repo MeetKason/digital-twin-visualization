@@ -86,6 +86,6 @@
 
 - [x] 执行 `npm run typecheck`、`npm run build` 和 `git diff --check`。
 - [x] 检查静态打包文件不包含 ion 令牌，确认 `.env` 未被 Git 跟踪。
-- [ ] 构建 `linux/amd64` 镜像并部署，确认 Web/API 健康检查通过。
+- [x] 构建 `linux/amd64` 镜像并部署，确认 Web/API 健康检查通过。
 - [x] 确认部署版仅显示卫星底图；没有令牌时保留地图并提示椭球回退。
 - [ ] 配置有效 Cesium ion 令牌后，在浏览器确认地形起伏、图层贴地显示和测量交互。
