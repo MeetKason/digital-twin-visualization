@@ -99,10 +99,10 @@ function decodeTiandituHeightmap(source: Uint8Array): Float32Array {
       const bytesPerSample = isFloat32 ? 4 : 2;
       const offset =
         (sourceRow * TDT_TILE_SIZE + sourceColumn) * bytesPerSample;
-      // 整数瓦片按高字节在前存储；浮点瓦片按小端 IEEE-754 编码。
+      // 天地图整数高程样本使用小端序；浮点样本使用小端 IEEE-754 编码。
       const height = isFloat32
         ? view.getFloat32(offset, true)
-        : source[offset] * 256 + source[offset + 1];
+        : view.getUint16(offset, true);
       heights[row * CESIUM_TILE_SIZE + column] =
         Number.isFinite(height) && height >= -2000 && height <= 10000
           ? height
