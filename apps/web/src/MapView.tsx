@@ -28,6 +28,7 @@ import {
   WebMapTileServiceImageryProvider,
   CesiumTerrainProvider,
   EllipsoidTerrainProvider,
+  type TerrainProvider,
   TileMapServiceImageryProvider,
   Credit,
   CreditDisplay,
@@ -38,6 +39,7 @@ import { LayerRuntime, type LayerHandle, type MapFacade } from "@dtv/sdk";
 import { api, runtimeConfig } from "./api";
 import { distanceMeters, areaMeters, type Coordinate } from "@dtv/contracts";
 import { createTiandituProvider } from "./tianditu";
+import { createTiandituTerrainProvider } from "./tiandituTerrain";
 interface Props {
   scene: SceneConfig;
   stations: Station[];
@@ -116,7 +118,9 @@ export default function MapView({
         viewerRef.current = v;
         v.scene.globe.baseColor = Color.fromCssColorString("#d9e6dd");
         v.scene.backgroundColor = Color.fromCssColorString("#d9e5ed");
-        v.scene.globe.enableLighting = false;
+        v.scene.globe.enableLighting = true;
+        v.scene.verticalExaggeration = 1.2;
+        v.scene.verticalExaggerationRelativeHeight = 0;
         const home = () =>
           v.camera.flyTo({
             destination: Cartesian3.fromDegrees(...scene.center, scene.height),
@@ -162,13 +166,14 @@ export default function MapView({
             ? "内网底图"
             : "本地低精度底图";
         const configuredTerrain = Boolean(
-          config.terrainUrl || config.cesiumIonAccessToken,
+          (config.basemap?.type === "tianditu" && config.tiandituKey) ||
+            config.terrainUrl ||
+            config.cesiumIonAccessToken,
         );
         const setEllipsoidFallback = (reason: string) => {
           if (disposed || v.isDestroyed()) return;
           v.terrainProvider = new EllipsoidTerrainProvider();
           v.scene.globe.depthTestAgainstTerrain = false;
-          v.scene.globe.enableLighting = false;
           setNotice(`${baseMapLabel} · ${reason}，当前显示平滑椭球`);
         };
         if (!configuredTerrain) {
@@ -176,10 +181,21 @@ export default function MapView({
         } else {
           // 地形网络请求在后台执行，不阻塞图层运行时、测量工具和 onReady 初始化。
           void (async () => {
-            const providerName = config.terrainUrl ? "内网地形服务" : "Cesium ion";
+            const useTiandituTerrain = Boolean(
+              config.basemap?.type === "tianditu" && config.tiandituKey,
+            );
+            const providerName = useTiandituTerrain
+              ? "天地图"
+              : config.terrainUrl
+                ? "内网地形服务"
+                : "Cesium ion";
             try {
-              let terrainPromise: Promise<CesiumTerrainProvider>;
-              if (config.terrainUrl) {
+              let terrainPromise: Promise<TerrainProvider>;
+              if (useTiandituTerrain) {
+                terrainPromise = Promise.resolve(
+                  createTiandituTerrainProvider(config.tiandituKey!),
+                );
+              } else if (config.terrainUrl) {
                 terrainPromise = CesiumTerrainProvider.fromUrl(config.terrainUrl);
               } else {
                 const token = config.cesiumIonAccessToken;
@@ -212,11 +228,13 @@ export default function MapView({
                   terrainFailed = true;
                   setEllipsoidFallback(`${providerName}地形瓦片加载失败`);
                   setError(`${providerName}地形瓦片访问失败，请检查令牌授权和网络连接`);
+                  removeTerrainErrorListener?.();
+                  removeTerrainErrorListener = undefined;
                 },
               );
               v.terrainProvider = terrain;
               v.scene.globe.depthTestAgainstTerrain = true;
-              setNotice(`${baseMapLabel} · Cesium 真实地形已启用 · 气象图层为 Mock 示例`);
+              setNotice(`${baseMapLabel} · ${providerName}真实地形已启用 · 垂直夸张 1.2× · 气象图层为 Mock 示例`);
             } catch {
               if (terrainLoadTimer !== undefined) window.clearTimeout(terrainLoadTimer);
               terrainLoadTimer = undefined;
