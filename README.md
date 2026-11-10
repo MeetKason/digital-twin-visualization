@@ -2,7 +2,6 @@
 
 **Digital Twin Visualization** · `digital-twin-visualization` · 采集与查询闭环版 0.3.0
 
-以用户最新要求为准，界面与功能**仅参考 Figma「新电子沙盘」Page（1393:37400）**，其余 Page 不参考。按左侧菜单顺序实现本地演示交互。
 
 | 菜单 | 当前能力 |
 | --- | --- |
