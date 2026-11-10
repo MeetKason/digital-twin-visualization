@@ -60,7 +60,7 @@ docker buildx build \
   --file "$build_context/Dockerfile" \
   "$build_context"
 
-echo "正在将镜像 $image_tag 传输到 $ssh_target…"
+echo "正在将镜像 $image_tag 传输到 ${ssh_target}…"
 docker save "$image_tag" | gzip -1 | ssh -p "$ssh_port" "$ssh_target" 'gunzip | docker load'
 
 remote_script="/tmp/dtv-deploy-web-$commit.sh"
