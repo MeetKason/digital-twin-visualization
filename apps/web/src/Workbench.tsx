@@ -155,8 +155,7 @@ function WorkArea({ scene }: { scene: SceneConfig }) {
     [index, setIndex] = useState(0),
     [playing, setPlaying] = useState(false),
     [station, setStation] = useState<Station | null>(null),
-    [activeMenu, setActiveMenu] = useState("home"),
-    [mode, setMode] = useState<"2d" | "3d">("3d");
+    [activeMenu, setActiveMenu] = useState("home");
   const business = useBusiness(scene.id);
   const managedStations = useMemo(
     () => (business.data.stations.length ? business.data.stations : stations),
@@ -458,17 +457,6 @@ function WorkArea({ scene }: { scene: SceneConfig }) {
             onStation={pickStation}
           />
         </div>
-        <UiButton
-          hidden={activeMenu !== "home"}
-          className="map-mode"
-          onClick={() => {
-            const next = mode === "3d" ? "2d" : "3d";
-            setMode(next);
-            map?.setMode(next);
-          }}
-        >
-          {mode === "3d" ? "二维视图" : "三维视图"}
-        </UiButton>
         {toolsOpen && activeMenu === "home" && (
           <ToolsPanel
             map={map}

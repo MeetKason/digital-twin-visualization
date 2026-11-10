@@ -1969,3 +1969,31 @@ td button {
 .weather-table .ant-table { font-size: 11px; }
 .weather-table .ant-table-thead > tr > th { background: #edf1f6; font-size: 11px; }
 .weather-table .ant-table-cell { white-space: normal; }
+
+/* 多行目录按钮保留内容高度，避免 Ant Button 默认32px高度压住第二行。 */
+.ant-btn.catalog-card {
+  height: auto;
+  min-height: 62px;
+  flex-shrink: 0;
+  align-items: stretch;
+  justify-content: center;
+  gap: 4px;
+  padding: 10px 12px;
+  margin: 0;
+  line-height: 1.5;
+  white-space: normal;
+  text-align: left;
+}
+.ant-btn.catalog-card > * { display: block; white-space: normal; overflow-wrap: anywhere; }
+.catalog-card small { line-height: 1.5; }
+.cruise-library .panel-body { display: flex; flex-direction: column; gap: 10px; }
+.station-catalog-list .ant-list-items { gap: 8px; }
+.tool-grid { gap: 8px; margin: 10px 0; align-items: stretch; }
+.tool-grid > .ant-btn { height: auto; min-height: 36px; white-space: normal; line-height: 1.5; }
+.cruise-editor .panel-body > .ant-btn { margin-top: 8px; min-height: 36px; }
+.file-button.ant-upload-wrapper { padding: 0; border: 0; background: transparent; overflow: visible; }
+.file-button .ant-upload { width: 100%; }
+.ui-upload-trigger.ant-btn { width: 100%; min-height: 36px; height: auto; padding: 7px 10px; white-space: normal; }
+/* 来源署名直接显示，去掉英文折叠入口。 */
+.map-canvas .cesium-credit-expand-link { display: none !important; }
+.map-notice { max-width: min(440px, calc(100% - 28px)); line-height: 1.5; overflow-wrap: anywhere; pointer-events: none; }

@@ -139,7 +139,9 @@ export function UiUpload({ children, onChange, required, ...props }: UiUploadPro
         onChange?.({ target: { files } } as unknown as ChangeEvent<HTMLInputElement>);
       }}
     >
-      <span className="ui-upload-trigger">{children ?? "选择文件"}</span>
+      <AntButton className="ui-upload-trigger" disabled={props.disabled}>
+        {children ?? "选择文件"}
+      </AntButton>
     </AntUpload>
   );
 }

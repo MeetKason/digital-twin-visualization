@@ -265,7 +265,7 @@ export default function MapView({
               );
               v.terrainProvider = terrain;
               v.scene.globe.depthTestAgainstTerrain = true;
-              setNotice(`${baseMapLabel} · ${providerName}真实地形已启用 · 垂直夸张 1.2× · 气象图层为 Mock 示例`);
+              setNotice(`${baseMapLabel} · ${providerName}地形 · 1.2×`);
             } catch {
               if (terrainLoadTimer !== undefined) window.clearTimeout(terrainLoadTimer);
               terrainLoadTimer = undefined;

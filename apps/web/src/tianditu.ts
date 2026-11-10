@@ -1,4 +1,5 @@
 import {
+  Credit,
   UrlTemplateImageryProvider,
   WebMercatorTilingScheme,
   type ImageryProvider,
@@ -18,6 +19,6 @@ export function createTiandituProvider(key: string): ImageryProvider {
     subdomains,
     tilingScheme: new WebMercatorTilingScheme(),
     maximumLevel: 18,
-    credit: "天地图",
+    credit: new Credit("天地图", true),
   });
 }

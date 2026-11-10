@@ -1,4 +1,5 @@
 import {
+  Credit,
   CustomHeightmapTerrainProvider,
   Ellipsoid,
   GeographicTilingScheme,
@@ -70,7 +71,7 @@ export function createTiandituTerrainProvider(key: string): TerrainProvider {
     width: CESIUM_TILE_SIZE,
     height: CESIUM_TILE_SIZE,
     tilingScheme: new GeographicTilingScheme({ ellipsoid: Ellipsoid.WGS84 }),
-    credit: "天地图高程服务",
+    credit: new Credit("天地图高程服务", true),
     callback: async (x, y, level) => {
       // 低层级使用零高程占位，避免视野很大时请求过多粗分辨率瓦片。
       if (level < TDT_MIN_CESIUM_LEVEL) {
