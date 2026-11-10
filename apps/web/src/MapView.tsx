@@ -133,7 +133,7 @@ export default function MapView({
             ),
             orientation: {
               heading: CesiumMath.toRadians(180),
-              pitch: CesiumMath.toRadians(-7),
+              pitch: CesiumMath.toRadians(-18),
               roll: 0,
             },
             duration: 0.7,
