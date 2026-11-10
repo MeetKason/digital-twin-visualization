@@ -1,4 +1,6 @@
+import { UiButton } from "./ui/controls";
 import { useEffect, useRef, useState } from "react";
+import { Alert } from "antd";
 import {
   Viewer,
   Ion,
@@ -131,10 +133,30 @@ export default function MapView({
         if (config.basemap) {
           const b = config.basemap;
           if (b.type === "tianditu") {
-            v.imageryLayers.addImageryProvider(
-              createTiandituProvider(config.tiandituKey ?? ""),
-              0,
-            );
+            const provider = createTiandituProvider(config.tiandituKey ?? "");
+            const tiandituLayer = v.imageryLayers.addImageryProvider(provider, 0);
+            let imageryFailedOver = false;
+            provider.errorEvent.addEventListener((tileError) => {
+              if (disposed || imageryFailedOver || tileError.retry) return;
+              imageryFailedOver = true;
+              void TileMapServiceImageryProvider.fromUrl(
+                "/cesium/Assets/Textures/NaturalEarthII",
+              )
+                .then((fallbackProvider) => {
+                  if (disposed || v.isDestroyed()) return;
+                  v.imageryLayers.addImageryProvider(fallbackProvider, 0);
+                  v.imageryLayers.remove(tiandituLayer, true);
+                  setNotice("天地图影像请求失败 · 当前显示本地低精度底图");
+                  setError(
+                    "天地图影像瓦片访问失败，请检查浏览器端 Key、来源域名授权和网络连接；已切换本地底图",
+                  );
+                })
+                .catch(() => {
+                  if (!disposed) {
+                    setError("天地图影像和本地底图均无法加载，请检查网络连接后重试");
+                  }
+                });
+            });
             setNotice("天地图底图 · 气象叠加为 Mock 示例");
           } else {
             const provider =
@@ -834,10 +856,17 @@ export default function MapView({
         {notice}
       </div>
       {error && (
-        <div role="alert" className="map-error">
-          {error}
-          <button onClick={() => window.location.reload()}>重新加载</button>
-        </div>
+        <Alert
+          className="map-error"
+          type="error"
+          showIcon
+          message={error}
+          action={
+            <UiButton size="small" onClick={() => window.location.reload()}>
+              重新加载
+            </UiButton>
+          }
+        />
       )}
       <div className="map-coordinates">
         EPSG:4326 · {scene.center[0].toFixed(4)}°E，{scene.center[1].toFixed(4)}

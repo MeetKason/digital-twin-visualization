@@ -1,3 +1,4 @@
+import { UiButton, UiInput, UiList, UiSelect, UiUpload } from "../ui/controls";
 import { useEffect, useRef, useState } from "react";
 import { Icon } from "../Icon";
 import {
@@ -147,7 +148,7 @@ export function StationPage({
         </div>
         <div className="panel-body">
           <p className="muted">搜索、筛选并选择站点</p>
-          <input
+          <UiInput
             aria-label="搜索点位"
             placeholder="点位名称/编码"
             value={query}
@@ -155,17 +156,17 @@ export function StationPage({
           />
           <div className="filter-chips">
             {["全部", "气象站", "雷达", "风险点"].map((t) => (
-              <button
+              <UiButton
                 key={t}
                 className={t === category ? "active" : ""}
                 onClick={() => setCategory(t)}
               >
                 {t}
-              </button>
+              </UiButton>
             ))}
           </div>
           <div className="tool-grid">
-            <button
+            <UiButton
               className="primary"
               onClick={() => {
                 setIsNew(true);
@@ -184,34 +185,33 @@ export function StationPage({
               }}
             >
               录入站点
-            </button>
-            <label className="file-button">
+            </UiButton>
+            <UiUpload
+              className="file-button"
+              accept=".csv"
+              aria-label="导入站点CSV"
+              onChange={async (e) => {
+                try {
+                  const file = e.target.files?.[0];
+                  if (!file) return;
+                  if (file.size > 2e6)
+                    throw new Error("导入文件不得超过 2MB");
+                  setReport(
+                    parseStationCsv(
+                      await file.text(),
+                      data.stations,
+                      sceneId,
+                    ),
+                  );
+                  setError("");
+                } catch (e) {
+                  setError((e as Error).message);
+                }
+              }}
+            >
               批量导入
-              <input
-                type="file"
-                accept=".csv"
-                aria-label="导入站点CSV"
-                onChange={async (e) => {
-                  try {
-                    const file = e.target.files?.[0];
-                    if (!file) return;
-                    if (file.size > 2e6)
-                      throw new Error("导入文件不得超过 2MB");
-                    setReport(
-                      parseStationCsv(
-                        await file.text(),
-                        data.stations,
-                        sceneId,
-                      ),
-                    );
-                    setError("");
-                  } catch (e) {
-                    setError((e as Error).message);
-                  }
-                }}
-              />
-            </label>
-            <button
+            </UiUpload>
+            <UiButton
               onClick={() =>
                 download(
                   "站点导入模板.csv",
@@ -220,8 +220,8 @@ export function StationPage({
               }
             >
               下载模板
-            </button>
-            <button
+            </UiButton>
+            <UiButton
               onClick={() =>
                 download(
                   "站点导出.csv",
@@ -237,11 +237,13 @@ export function StationPage({
               }
             >
               导出站点
-            </button>
+            </UiButton>
           </div>
           <div className="catalog-scroll">
-            {data.stations
-              .filter(
+            <UiList
+              className="station-catalog-list"
+              split={false}
+              dataSource={data.stations.filter(
                 (s) =>
                   (!query || s.id.includes(query) || s.name.includes(query)) &&
                   (category === "全部" ||
@@ -250,11 +252,11 @@ export function StationPage({
                       !s.type.includes("风险")) ||
                     (category === "雷达" && s.type.includes("雷达")) ||
                     (category === "风险点" && s.type.includes("风险"))),
-              )
-              .map((s, i) => (
-                <button
+              )}
+              renderItem={(s, i) => (
+                <UiList.Item className="station-catalog-item" key={s.id}>
+                <UiButton
                   className={`catalog-card ${station?.id === s.id ? "active" : ""}`}
-                  key={s.id}
                   onClick={() => setSelected(s.id)}
                 >
                   <span>
@@ -263,8 +265,10 @@ export function StationPage({
                   <small>
                     {s.id} · {s.type}
                   </small>
-                </button>
-              ))}
+                </UiButton>
+                </UiList.Item>
+              )}
+            />
           </div>
           <p className="data-disclaimer">
             本地演示资料；导入先预校验，重复编码默认跳过。CSV 不超过 2MB。
@@ -289,7 +293,7 @@ export function StationPage({
                 <StationFields value={draft} onChange={setDraft} readonlyId />
                 <h3>三维模型绑定（可选）</h3>
                 <div className="inline-fields">
-                  <select
+                  <UiSelect
                     aria-label="站点模型"
                     value={draft.modelId ?? ""}
                     onChange={(e) =>
@@ -307,14 +311,14 @@ export function StationPage({
                           {a.name}
                         </option>
                       ))}
-                  </select>
-                  <button type="button" onClick={() => setModels(true)}>
+                  </UiSelect>
+                  <UiButton htmlType="button" onClick={() => setModels(true)}>
                     上传/绑定
-                  </button>
+                  </UiButton>
                 </div>
                 <label>
                   站点默认巡航视角（可选）
-                  <select
+                  <UiSelect
                     value={draft.bookmarkId ?? ""}
                     onChange={(e) =>
                       setDraft({
@@ -329,13 +333,13 @@ export function StationPage({
                         {b.name}
                       </option>
                     ))}
-                  </select>
+                  </UiSelect>
                 </label>
                 <div className="tool-grid">
-                  <button type="button" onClick={() => locate(station)}>
+                  <UiButton htmlType="button" onClick={() => locate(station)}>
                     定位到地图
-                  </button>
-                  <button className="primary">保存修改</button>
+                  </UiButton>
+                  <UiButton className="primary" type="submit">保存修改</UiButton>
                 </div>
               </form>
               <ObservationCard station={station} time={time} />
@@ -374,7 +378,7 @@ export function StationPage({
                     </small>
                   </div>
                   {!a.blobId.startsWith("srv_") && (
-                    <button
+                    <UiButton
                       onClick={() => {
                         void migrateFile(sceneId, a.blobId, a.fileName)
                           .then((blobId) =>
@@ -391,9 +395,9 @@ export function StationPage({
                       }}
                     >
                       迁移到服务器
-                    </button>
+                    </UiButton>
                   )}
-                  <button
+                  <UiButton
                     onClick={() => {
                       const request = ++viewRequest.current;
                       void readFile(sceneId, a.blobId)
@@ -411,8 +415,8 @@ export function StationPage({
                     }}
                   >
                     {a.kind === "video" ? "播放视频" : "打开文档"}
-                  </button>
-                  <button
+                  </UiButton>
+                  <UiButton
                     onClick={() =>
                       void update((old) => ({
                         ...old,
@@ -425,7 +429,7 @@ export function StationPage({
                     }
                   >
                     移除
-                  </button>
+                  </UiButton>
                 </div>
               ))}
             {!data.assets.some((a) => a.stationId === station?.id) && (
@@ -443,26 +447,24 @@ export function StationPage({
             </p>
             <FileMaintenance sceneId={sceneId} />
             <div className="tool-grid">
-              <label className="file-button">
+              <UiUpload
+                className="file-button"
+                aria-label="上传点位视频"
+                accept=".mp4,.webm"
+                disabled={!station}
+                onChange={(e) => void attach(e.target.files?.[0], "video")}
+              >
                 上传视频
-                <input
-                  aria-label="上传点位视频"
-                  type="file"
-                  accept=".mp4,.webm"
-                  disabled={!station}
-                  onChange={(e) => void attach(e.target.files?.[0], "video")}
-                />
-              </label>
-              <label className="file-button">
+              </UiUpload>
+              <UiUpload
+                className="file-button"
+                aria-label="上传点位文档"
+                accept=".pdf"
+                disabled={!station}
+                onChange={(e) => void attach(e.target.files?.[0], "document")}
+              >
                 上传 PDF
-                <input
-                  aria-label="上传点位文档"
-                  type="file"
-                  accept=".pdf"
-                  disabled={!station}
-                  onChange={(e) => void attach(e.target.files?.[0], "document")}
-                />
-              </label>
+              </UiUpload>
             </div>
           </div>
         </section>
@@ -486,7 +488,7 @@ export function StationPage({
             <StationFields value={dialog} onChange={setDialog} />
             <label>
               三维模型绑定（可选）
-              <select
+              <UiSelect
                 value={dialog.modelId ?? ""}
                 onChange={(e) =>
                   setDialog({ ...dialog, modelId: e.target.value || undefined })
@@ -500,11 +502,11 @@ export function StationPage({
                       {a.name}
                     </option>
                   ))}
-              </select>
+              </UiSelect>
             </label>
             <label>
               默认巡航视角（选填）
-              <select
+              <UiSelect
                 value={dialog.bookmarkId ?? ""}
                 onChange={(e) =>
                   setDialog({
@@ -519,14 +521,14 @@ export function StationPage({
                     {b.name}
                   </option>
                 ))}
-              </select>
+              </UiSelect>
             </label>
             {error && (
               <p role="alert" className="error-text">
                 {error}
               </p>
             )}
-            <button className="primary">保存站点</button>
+            <UiButton className="primary" type="submit">保存站点</UiButton>
           </form>
         </Modal>
       )}
@@ -555,7 +557,7 @@ export function StationPage({
               第 {e.line} 行：{e.message}
             </p>
           ))}
-          <button
+          <UiButton
             className="primary"
             disabled={!report.imported.length}
             onClick={() => {
@@ -572,7 +574,7 @@ export function StationPage({
             }}
           >
             确认导入
-          </button>
+          </UiButton>
         </Modal>
       )}
       {viewing && (
@@ -614,7 +616,7 @@ function StationFields({
     <div className="form-grid">
       <label>
         站点名称
-        <input
+        <UiInput
           required
           maxLength={80}
           value={value.name}
@@ -623,7 +625,7 @@ function StationFields({
       </label>
       <label>
         点位编码
-        <input
+        <UiInput
           required
           maxLength={40}
           readOnly={readonlyId}
@@ -633,25 +635,25 @@ function StationFields({
       </label>
       <label>
         站点类型
-        <select
+        <UiSelect
           value={value.type}
           onChange={(e) => onChange({ ...value, type: e.target.value })}
         >
           {types.map((t) => (
             <option key={t}>{t}</option>
           ))}
-        </select>
+        </UiSelect>
       </label>
       <label>
         所属行政区
-        <input
+        <UiInput
           value={value.region ?? ""}
           onChange={(e) => onChange({ ...value, region: e.target.value })}
         />
       </label>
       <label>
         经度(°)
-        <input
+        <UiInput
           required
           type="number"
           step="any"
@@ -668,7 +670,7 @@ function StationFields({
       </label>
       <label>
         纬度(°)
-        <input
+        <UiInput
           required
           type="number"
           step="any"
@@ -685,7 +687,7 @@ function StationFields({
       </label>
       <label>
         高程(m)
-        <input
+        <UiInput
           required
           type="number"
           step="any"
@@ -697,14 +699,14 @@ function StationFields({
       </label>
       <label>
         维护单位
-        <input
+        <UiInput
           value={value.maintenance ?? ""}
           onChange={(e) => onChange({ ...value, maintenance: e.target.value })}
         />
       </label>
       <label>
         站点状态
-        <select
+        <UiSelect
           value={value.status ?? "运行正常"}
           onChange={(e) => onChange({ ...value, status: e.target.value })}
         >
@@ -712,7 +714,7 @@ function StationFields({
           <option>维护中</option>
           <option>数据更新中</option>
           <option>停用</option>
-        </select>
+        </UiSelect>
       </label>
     </div>
   );
@@ -790,7 +792,7 @@ function ObservationCard({
       </div>
       <div className="chart-heading">
         <h3>站点数据变化</h3>
-        <select
+        <UiSelect
           aria-label="趋势要素"
           value={element}
           onChange={(e) => setElement(e.target.value as typeof element)}
@@ -798,7 +800,7 @@ function ObservationCard({
           <option value="temperatureC">气温(°C)</option>
           <option value="rainfallMm">降水(mm)</option>
           <option value="windSpeedMs">风速(m/s)</option>
-        </select>
+        </UiSelect>
       </div>
       {nums.length ? (
         <svg

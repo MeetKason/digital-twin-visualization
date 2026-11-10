@@ -1,3 +1,4 @@
+import { UiButton, UiInput, UiSelect } from "../ui/controls";
 import { useEffect, useRef, useState } from "react";
 import { Icon } from "../Icon";
 import type { CruiseController, CruiseProgress, MapFacade } from "@dtv/sdk";
@@ -152,7 +153,7 @@ export function CruisePanel({
           <span>{data.plans.length} 个</span>
         </div>
         <div className="panel-body">
-          <button
+          <UiButton
             className="primary wide"
             onClick={() => {
               cancelSelection();
@@ -170,9 +171,9 @@ export function CruisePanel({
             }}
           >
             新建方案
-          </button>
+          </UiButton>
           {data.plans.map((p) => (
-            <button
+            <UiButton
               key={p.id}
               className={`catalog-card ${p.id === selected ? "active" : ""}`}
               onClick={() => {
@@ -187,7 +188,7 @@ export function CruisePanel({
               <small>
                 {p.points.length} 个节点 · {p.saved ? "已保存" : "编辑中"}
               </small>
-            </button>
+            </UiButton>
           ))}
           <p className="data-disclaimer">
             本地演示方案，按地区保存。拖拽地图会停止正在运行的相机巡航。
@@ -211,12 +212,12 @@ export function CruisePanel({
           <h3>历史书签</h3>
           <div className="bookmark-chips">
             {data.bookmarks.map((b) => (
-              <button key={b.id} onClick={() => map?.restoreView?.(b.view)}>
+              <UiButton key={b.id} onClick={() => map?.restoreView?.(b.view)}>
                 {b.name}
-              </button>
+              </UiButton>
             ))}
           </div>
-          <button
+          <UiButton
             onClick={() => {
               const view = map?.captureView?.();
               if (view)
@@ -234,9 +235,9 @@ export function CruisePanel({
             }}
           >
             保存当前视角
-          </button>
+          </UiButton>
           <h3>模型库</h3>
-          <button onClick={() => setModels(true)}>管理/上传模型</button>
+          <UiButton onClick={() => setModels(true)}>管理/上传模型</UiButton>
           <p className="muted">
             {data.assets.filter((a) => a.kind === "model").length} 个已登记
           </p>
@@ -246,7 +247,7 @@ export function CruisePanel({
               <fieldset disabled={running}>
                 <label>
                   漫游方案名称
-                  <input
+                  <UiInput
                     maxLength={80}
                     value={plan.name}
                     onChange={(e) =>
@@ -260,15 +261,15 @@ export function CruisePanel({
                     key={p.id}
                     className={`cruise-point ${point?.id === p.id ? "active" : ""}`}
                   >
-                    <button
+                    <UiButton
                       onClick={() => {
                         setPointId(p.id);
                         map?.flyTo(p.lon, p.lat, 10000);
                       }}
                     >
                       {String(i + 1).padStart(2, "0")} {p.name}
-                    </button>
-                    <button
+                    </UiButton>
+                    <UiButton
                       aria-label={`上移节点${i + 1}`}
                       disabled={i === 0}
                       onClick={() =>
@@ -279,8 +280,8 @@ export function CruisePanel({
                       }
                     >
                       <Icon name="up" size={16} />
-                    </button>
-                    <button
+                    </UiButton>
+                    <UiButton
                       aria-label={`下移节点${i + 1}`}
                       disabled={i === plan.points.length - 1}
                       onClick={() =>
@@ -291,8 +292,8 @@ export function CruisePanel({
                       }
                     >
                       <Icon name="down" size={16} />
-                    </button>
-                    <button
+                    </UiButton>
+                    <UiButton
                       aria-label={`删除节点${i + 1}`}
                       onClick={() =>
                         edit((old) => ({
@@ -302,11 +303,11 @@ export function CruisePanel({
                       }
                     >
                       <Icon name="close" size={16} />
-                    </button>
+                    </UiButton>
                   </div>
                 ))}
                 <div className="tool-grid">
-                  <button
+                  <UiButton
                     onClick={() => {
                       cancelPick.current?.();
                       setError("请在地图单击选择巡航点");
@@ -324,8 +325,8 @@ export function CruisePanel({
                     }}
                   >
                     地图选点
-                  </button>
-                  <button onClick={() => setPicker(true)}>从站点添加</button>
+                  </UiButton>
+                  <UiButton onClick={() => setPicker(true)}>从站点添加</UiButton>
                 </div>
                 {point && (
                   <>
@@ -345,7 +346,7 @@ export function CruisePanel({
                       ).map(([key, label]) => (
                         <label key={key}>
                           {label}
-                          <input
+                          <UiInput
                             type="number"
                             step={key === "transition" ? ".1" : "1"}
                             value={point[key] ?? (key === "angle" ? 360 : 3000)}
@@ -365,7 +366,7 @@ export function CruisePanel({
                     </div>
                     <label>
                       飞行曲线
-                      <select
+                      <UiSelect
                         value={point.curve ?? "smooth"}
                         onChange={(e) =>
                           edit((old) => ({
@@ -385,11 +386,11 @@ export function CruisePanel({
                       >
                         <option value="smooth">平滑曲线(缓入缓出)</option>
                         <option value="linear">线性转场</option>
-                      </select>
+                      </UiSelect>
                     </label>
                     <label>
                       旋转方向
-                      <select
+                      <UiSelect
                         value={point.direction}
                         onChange={(e) =>
                           edit((old) => ({
@@ -407,11 +408,11 @@ export function CruisePanel({
                       >
                         <option value={1}>顺时针</option>
                         <option value={-1}>逆时针</option>
-                      </select>
+                      </UiSelect>
                     </label>
                     <label>
                       关联三维模型
-                      <select
+                      <UiSelect
                         value={point.modelId ?? ""}
                         onChange={(e) =>
                           edit((old) => ({
@@ -432,11 +433,11 @@ export function CruisePanel({
                               {a.name}
                             </option>
                           ))}
-                      </select>
+                      </UiSelect>
                     </label>
                     <label>
                       关联保存视角
-                      <select
+                      <UiSelect
                         value={point.bookmarkId ?? ""}
                         onChange={(e) =>
                           edit((old) => ({
@@ -458,13 +459,13 @@ export function CruisePanel({
                             {b.name}
                           </option>
                         ))}
-                      </select>
+                      </UiSelect>
                     </label>
                   </>
                 )}
               </fieldset>
               <div className="tool-grid">
-                <button
+                <UiButton
                   className="primary"
                   disabled={running}
                   onClick={() => {
@@ -483,12 +484,12 @@ export function CruisePanel({
                   }}
                 >
                   保存方案
-                </button>
-                <button disabled={running} onClick={start}>
+                </UiButton>
+                <UiButton disabled={running} onClick={start}>
                   开始漫游
-                </button>
+                </UiButton>
               </div>
-              <button
+              <UiButton
                 disabled={running}
                 onClick={() => {
                   update((old) => ({
@@ -500,7 +501,7 @@ export function CruisePanel({
                 }}
               >
                 删除方案
-              </button>
+              </UiButton>
             </>
           ) : (
             <p className="empty-state">选择或新建漫游方案</p>
@@ -521,7 +522,7 @@ export function CruisePanel({
         </span>
         {running && (
           <>
-            <button
+            <UiButton
               className="primary"
               onClick={() =>
                 progress?.state === "paused"
@@ -530,8 +531,8 @@ export function CruisePanel({
               }
             >
               {progress?.state === "paused" ? "继续漫游" : "暂停漫游"}
-            </button>
-            <button onClick={() => controller.current?.stop()}>停止漫游</button>
+            </UiButton>
+            <UiButton onClick={() => controller.current?.stop()}>停止漫游</UiButton>
           </>
         )}
         <progress value={progress?.fraction ?? 0} max={1} />
@@ -539,7 +540,7 @@ export function CruisePanel({
       {picker && (
         <Modal title="从站点添加" onClose={() => setPicker(false)}>
           {data.stations.map((s) => (
-            <button
+            <UiButton
               className="search-result"
               key={s.id}
               onClick={() =>
@@ -547,7 +548,7 @@ export function CruisePanel({
               }
             >
               添加 {s.name}
-            </button>
+            </UiButton>
           ))}
         </Modal>
       )}

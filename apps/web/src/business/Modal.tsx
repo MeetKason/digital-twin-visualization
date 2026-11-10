@@ -1,5 +1,7 @@
-import { useEffect, type ReactNode } from "react";
-import { Icon } from "../Icon";
+import { Modal as AntModal } from "antd";
+import type { ReactNode } from "react";
+
+/** 全站业务弹窗统一复用 Ant Modal 的键盘、焦点与遮罩交互。 */
 export function Modal({
   title,
   onClose,
@@ -9,33 +11,21 @@ export function Modal({
   onClose: () => void;
   children: ReactNode;
 }) {
-  useEffect(() => {
-    const fn = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onClose();
-    };
-    window.addEventListener("keydown", fn);
-    return () => window.removeEventListener("keydown", fn);
-  }, [onClose]);
   return (
-    <div className="modal-backdrop">
-      <section
-        className="business-modal panel"
-        role="dialog"
-        aria-modal="true"
-        aria-label={title}
-      >
-        <div className="panel-heading">
-          <strong>{title}</strong>
-          <button
-            aria-label={`关闭${title}`}
-            className="mini"
-            onClick={onClose}
-          >
-            <Icon name="close" size={16} />
-          </button>
-        </div>
-        <div className="panel-body">{children}</div>
-      </section>
-    </div>
+    <AntModal
+      open
+      centered
+      title={title}
+      className="business-modal"
+      width={600}
+      maskClosable={false}
+      footer={null}
+      onCancel={onClose}
+      styles={{
+        body: { maxHeight: "calc(94vh - 72px)", overflowY: "auto" },
+      }}
+    >
+      {children}
+    </AntModal>
   );
 }

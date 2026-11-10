@@ -1,3 +1,4 @@
+import { UiButton } from "../ui/controls";
 import { useState } from "react";
 import { deleteFile, listFiles } from "./files";
 export function FileMaintenance({ sceneId }: { sceneId: string }) {
@@ -20,9 +21,9 @@ export function FileMaintenance({ sceneId }: { sceneId: string }) {
   }
   return (
     <div className="file-maintenance">
-      <button disabled={busy} onClick={() => void refresh()}>
+      <UiButton disabled={busy} onClick={() => void refresh()}>
         查看未关联文件
-      </button>
+      </UiButton>
       {files && (
         <>
           <p className="muted">
@@ -34,7 +35,7 @@ export function FileMaintenance({ sceneId }: { sceneId: string }) {
               <span>
                 {file.name} · {(file.size / 1024 / 1024).toFixed(2)} MB
               </span>
-              <button
+              <UiButton
                 disabled={busy}
                 onClick={() => {
                   setBusy(true);
@@ -47,7 +48,7 @@ export function FileMaintenance({ sceneId }: { sceneId: string }) {
                 }}
               >
                 清理文件
-              </button>
+              </UiButton>
             </div>
           ))}
         </>

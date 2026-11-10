@@ -1899,3 +1899,73 @@ td button {
 .ingestion-panel form { margin: 16px 0; }
 .ingestion-jobs { max-height: 380px; overflow: auto; margin: 16px 0; }
 .ingestion-jobs small { display: block; color: #8297ad; }
+
+/* Ant Design 控件复用项目颜色和尺寸，避免业务表单出现第二套默认外观。 */
+.panel.ant-card {
+  border-color: var(--border);
+  border-radius: 4px;
+  box-shadow: 0 3px 12px #1c466c14;
+}
+.panel.ant-card > .ant-card-body { height: 100%; padding: 0; }
+.ant-btn { border-radius: 4px; font-family: inherit; }
+.ant-btn.primary,
+.ant-btn-primary {
+  background: var(--primary);
+  border-color: var(--primary);
+  color: #fff;
+}
+.ant-btn.primary:hover,
+.ant-btn-primary:hover {
+  background: #0d55aa;
+  border-color: #0d55aa;
+  color: #fff;
+}
+.ant-input,
+.ant-input-affix-wrapper,
+.ant-select-selector,
+.ant-input-number { border-radius: 4px !important; }
+.business-modal .ant-input,
+.business-page .ant-input,
+.cruise-editor .ant-input,
+.business-modal .ant-input-affix-wrapper,
+.business-page .ant-input-affix-wrapper,
+.cruise-editor .ant-input-affix-wrapper,
+.business-modal .ant-select-selector,
+.business-page .ant-select-selector,
+.cruise-editor .ant-select-selector {
+  min-height: 34px;
+  border-color: #dbe3ec;
+  background: #fff;
+  color: #243244;
+}
+.business-modal .ant-input,
+.business-page .ant-input,
+.cruise-editor .ant-input { padding: 5px 9px; }
+.inline-fields .ant-select { flex: 1; min-width: 0; }
+.header-right .ant-select { min-width: 120px; }
+.header-right .ant-select-selector {
+  height: 32px !important;
+  border-color: #ffffff88 !important;
+  background: #214c72 !important;
+  color: #fff !important;
+}
+.header-right .ant-select-selection-item { color: #fff !important; line-height: 30px !important; }
+.timeline .ant-slider { width: 100%; margin: 6px 0; }
+.opacity-control .ant-slider { margin: 6px 0; }
+.layer-list .ant-list-items { display: flex; flex-direction: column; gap: 4px; }
+.layer-list .ant-list-item { display: block; width: 100%; padding: 0; border: 0; }
+.asset-list-card { margin: 10px 0; }
+.asset-list .ant-list-item,
+.station-catalog-list .ant-list-item { padding: 0; border: 0; }
+.station-catalog-list .ant-list-items { display: grid; gap: 3px; }
+.asset-list-card .ant-card-body { padding: 4px; }
+.file-button.ant-upload-wrapper,
+.file-button .ant-upload,
+.ui-upload-trigger { display: block; width: 100%; }
+.map-error .ant-alert-action { margin-left: 10px; }
+.audit-toolbar .ant-input,
+.audit-toolbar .ant-select-selector { min-height: 36px; }
+.publication-page > label .ant-input { min-height: 36px; padding: 7px 9px; }
+.weather-table .ant-table { font-size: 11px; }
+.weather-table .ant-table-thead > tr > th { background: #edf1f6; font-size: 11px; }
+.weather-table .ant-table-cell { white-space: normal; }

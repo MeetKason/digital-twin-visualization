@@ -1,3 +1,4 @@
+import { UiButton, UiInput } from "./ui/controls";
 import { useState } from "react";
 import { authApi } from "./api";
 import { Icon } from "./Icon";
@@ -39,7 +40,7 @@ export function Login({
         <p className="english-name">Digital Twin Visualization</p>
         <div className="login-field">
           <Icon name="user" size={24} />
-          <input
+          <UiInput
             aria-label="账号"
             placeholder="请输入账号"
             value={username}
@@ -49,7 +50,7 @@ export function Login({
         </div>
         <div className="login-field">
           <Icon name="password" size={24} />
-          <input
+          <UiInput
             aria-label="密码"
             type="password"
             placeholder="请输入密码"
@@ -58,23 +59,23 @@ export function Login({
             autoComplete="current-password"
           />
         </div>
-        <button
+        <UiButton
           className="primary login-submit"
           disabled={busy || !username || !password}
           onClick={() => void submit()}
         >
           登录
-        </button>
+        </UiButton>
         {demoEnabled && (
-          <button
+          <UiButton
             className="login-submit"
             disabled={busy}
             onClick={() => void submit(true)}
           >
             进入演示系统
-          </button>
+          </UiButton>
         )}
-        <button
+        <UiButton
           className="text-button"
           onClick={() =>
             setMessage(
@@ -83,7 +84,7 @@ export function Login({
           }
         >
           账号与访问说明
-        </button>
+        </UiButton>
         <p className="login-note">服务器会话 · 示例气象数据 · 非业务实况</p>
         {message && (
           <p role="status" className="access-note">

@@ -1,3 +1,4 @@
+import { UiButton } from "../ui/controls";
 import { lazy, Suspense, useCallback, useEffect, useState } from "react";
 import { Alert, Button, ConfigProvider, Menu } from "antd";
 import zhCN from "antd/locale/zh_CN";
@@ -214,9 +215,9 @@ export function DevicePage({ sceneId }: { sceneId: string }) {
     <section className="business-page device-page panel">
       <div className="panel-heading">
         <strong>设备监控</strong>
-        <button className="mini" onClick={() => void refresh()}>
+        <UiButton className="mini" onClick={() => void refresh()}>
           刷新状态
-        </button>
+        </UiButton>
       </div>
       <div className="panel-body">
         <h2>设备监控 · Mock 演示</h2>

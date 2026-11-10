@@ -1,3 +1,4 @@
+import { UiButton, UiSelect } from "./ui/controls";
 import {
   lazy,
   Suspense,
@@ -99,7 +100,7 @@ export default function Workbench({ onExit }: { onExit: () => void }) {
           <span className="demo-badge">
             {profile?.kind === "demo" ? "隔离演示租户" : "服务端会话"}
           </span>
-          <select
+          <UiSelect
             aria-label="地区场景"
             value={sceneId}
             onChange={(e) => setSceneId(e.target.value)}
@@ -109,7 +110,7 @@ export default function Workbench({ onExit }: { onExit: () => void }) {
                 {s.name}场景
               </option>
             ))}
-          </select>
+          </UiSelect>
           <time>
             {now.toLocaleDateString("sv-SE", { timeZone: "Asia/Shanghai" })}{" "}
             <b>
@@ -122,15 +123,15 @@ export default function Workbench({ onExit }: { onExit: () => void }) {
           <span className="header-divider" />
           <Icon name="user" />
           <span>{profile?.kind === "demo" ? "演示用户" : profile?.id}</span>
-          <button className="exit" onClick={onExit}>
+          <UiButton className="exit" onClick={onExit}>
             退出
-          </button>
+          </UiButton>
         </div>
       </header>
       {error ? (
         <div role="alert" className="loading-screen">
           场景加载失败：{error}
-          <button onClick={() => window.location.reload()}>重试</button>
+          <UiButton onClick={() => window.location.reload()}>重试</UiButton>
         </div>
       ) : scene ? (
         <WorkArea key={scene.id} scene={scene} />
@@ -332,14 +333,14 @@ function WorkArea({ scene }: { scene: SceneConfig }) {
     <div className="workspace">
       <nav className="side-navigation" aria-label="主导航">
         {navigation.map(([id, label]) => (
-          <button
+          <UiButton
             key={id}
             className={activeMenu === id ? "active" : ""}
             onClick={() => setActiveMenu(id)}
           >
             <Icon name={id} active={activeMenu === id} />
             <span>{label}</span>
-          </button>
+          </UiButton>
         ))}
         <div className="navigation-bottom">
           <span className="status-dot" />
@@ -382,7 +383,7 @@ function WorkArea({ scene }: { scene: SceneConfig }) {
           aria-label="地图工具"
           hidden={activeMenu !== "home"}
         >
-          <button
+          <UiButton
             aria-label="打开图层面板"
             className={panelOpen ? "active" : ""}
             onClick={() => {
@@ -392,8 +393,8 @@ function WorkArea({ scene }: { scene: SceneConfig }) {
           >
             <Icon name="layers" size={20} />
             <span>图层</span>
-          </button>
-          <button
+          </UiButton>
+          <UiButton
             aria-label="工具箱"
             className={toolsOpen ? "active" : ""}
             onClick={() => {
@@ -403,29 +404,29 @@ function WorkArea({ scene }: { scene: SceneConfig }) {
           >
             <Icon name="tools" size={20} />
             <span>工具箱</span>
-          </button>
-          <button onClick={() => map?.north()}>
+          </UiButton>
+          <UiButton onClick={() => map?.north()}>
             <Icon name="north" size={20} />
             <span>指北</span>
-          </button>
-          <button onClick={() => map?.zoom(0.6)}>
+          </UiButton>
+          <UiButton onClick={() => map?.zoom(0.6)}>
             <Icon name="plus" size={20} />
             <span>放大</span>
-          </button>
-          <button onClick={() => map?.zoom(1.4)}>
+          </UiButton>
+          <UiButton onClick={() => map?.zoom(1.4)}>
             <Icon name="minus" size={20} />
             <span>缩小</span>
-          </button>
-          <button
+          </UiButton>
+          <UiButton
             onClick={() => void document.documentElement.requestFullscreen?.()}
           >
             <Icon name="fullscreen" size={20} />
             <span>全屏</span>
-          </button>
-          <button onClick={() => map?.flyTo(...scene.center, scene.height)}>
+          </UiButton>
+          <UiButton onClick={() => map?.flyTo(...scene.center, scene.height)}>
             <Icon name="locate" size={20} />
             <span>定位</span>
-          </button>
+          </UiButton>
         </aside>
         <div hidden={!panelOpen || activeMenu !== "home"}>
           <LayerPanel
@@ -438,7 +439,7 @@ function WorkArea({ scene }: { scene: SceneConfig }) {
             onStation={pickStation}
           />
         </div>
-        <button
+        <UiButton
           hidden={activeMenu !== "home"}
           className="map-mode"
           onClick={() => {
@@ -448,7 +449,7 @@ function WorkArea({ scene }: { scene: SceneConfig }) {
           }}
         >
           {mode === "3d" ? "二维视图" : "三维视图"}
-        </button>
+        </UiButton>
         {toolsOpen && activeMenu === "home" && (
           <ToolsPanel
             map={map}
@@ -510,14 +511,14 @@ function WorkArea({ scene }: { scene: SceneConfig }) {
         <div className="business-sync">
           <span role="status">{business.status}</span>
           {business.error && (
-            <button onClick={() => void business.reload()}>
+            <UiButton onClick={() => void business.reload()}>
               重新加载服务端资料
-            </button>
+            </UiButton>
           )}
           {business.legacy && (
-            <button onClick={business.migrateLocal}>
+            <UiButton onClick={business.migrateLocal}>
               迁移当前地区的本地演示资料
-            </button>
+            </UiButton>
           )}
         </div>
         {business.error && (
@@ -646,9 +647,9 @@ function StationDetails({
         onPointerCancel={stopDragging}
       >
         <strong>站点观测详情</strong>
-        <button className="mini" aria-label="关闭站点详情" onClick={onClose}>
+        <UiButton className="mini" aria-label="关闭站点详情" onClick={onClose}>
           关闭 <Icon name="close" size={14} />
-        </button>
+        </UiButton>
       </div>
       <div className="panel-body">
         <span className="tag">Mock 示例站点</span>
@@ -693,7 +694,7 @@ function StationDetails({
           <>
             <label>
               可安装插件
-              <select
+              <UiSelect
                 aria-label="可安装插件"
                 value={extension.selectedId}
                 onChange={(event) =>
@@ -705,9 +706,9 @@ function StationDetails({
                     {plugin.id} · v{plugin.version}
                   </option>
                 ))}
-              </select>
+              </UiSelect>
             </label>
-            <button
+            <UiButton
               disabled={extension.busy || !extension.selected}
               onClick={() => void extension.toggle()}
             >
@@ -720,7 +721,7 @@ function StationDetails({
                   : extension.selected?.id === "example.station-popup"
                     ? "加载示例插件"
                     : `加载 ${extension.selected?.id}`}
-            </button>
+            </UiButton>
           </>
         ) : (
           <p className="muted">未发现可用插件。</p>

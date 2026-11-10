@@ -1,3 +1,4 @@
+import { UiButton, UiSlider } from "./ui/controls";
 import { Icon } from "./Icon";
 export function Timeline({
   times,
@@ -41,38 +42,38 @@ export function Timeline({
           </span>
         </div>
         <div className="play-controls">
-          <button
+          <UiButton
             disabled={!times.length}
             aria-label="上一时次"
             onClick={() => onIndex(Math.max(0, index - 1))}
           >
             <Icon name="previous" size={20} />
-          </button>
-          <button
+          </UiButton>
+          <UiButton
             disabled={!times.length}
             aria-label={playing ? "暂停时间轴" : "播放时间轴"}
             className="primary"
             onClick={() => onPlaying(!playing)}
           >
             {playing ? <Icon name="pause" size={20} /> : <Icon name="play" size={20} />}
-          </button>
-          <button
+          </UiButton>
+          <UiButton
             disabled={!times.length}
             aria-label="下一时次"
             onClick={() => onIndex(Math.min(times.length - 1, index + 1))}
           >
             <Icon name="next" size={20} />
-          </button>
+          </UiButton>
           <span className="tag">
             {times[index] ? label(times[index]) : "无时次"}
           </span>
         </div>
         <span className="timeline-source">Mock · 北京时间 UTC+8</span>
       </div>
-      <input
+      <UiSlider
         disabled={!times.length}
         aria-label="气象时次"
-        type="range"
+
         min="0"
         max={Math.max(0, times.length - 1)}
         value={index}
@@ -82,7 +83,7 @@ export function Timeline({
         {ticks.map((i) => {
           const t = times[i];
           return (
-            <button
+            <UiButton
               title={new Date(t).toLocaleString("zh-CN", {
                 timeZone: "Asia/Shanghai",
               })}
@@ -90,7 +91,7 @@ export function Timeline({
               onClick={() => onIndex(i)}
             >
               {label(t)}
-            </button>
+            </UiButton>
           );
         })}
       </div>

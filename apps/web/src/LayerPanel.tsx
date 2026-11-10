@@ -1,3 +1,6 @@
+import { UiButton, UiInput, UiSlider } from "./ui/controls";
+import { Switch } from "antd";
+import { UiList } from "./ui/controls";
 import { useEffect, useState } from "react";
 import type {
   LayerDescriptor,
@@ -87,9 +90,9 @@ export function LayerPanel({
     <section className="layer-panel panel">
       <div className="panel-heading">
         <strong>地图内容</strong>
-        <button className="mini" aria-label="收起图层面板" onClick={onClose}>
+        <UiButton className="mini" aria-label="收起图层面板" onClick={onClose}>
           收起 <Icon name="close" size={14} />
-        </button>
+        </UiButton>
       </div>
       <div className="panel-body">
         <div className="category-tabs">
@@ -100,17 +103,17 @@ export function LayerPanel({
               ["station", "站点图层"],
             ] as const
           ).map(([id, name]) => (
-            <button
+            <UiButton
               key={id}
               className={category === id ? "active" : ""}
               onClick={() => setCategory(id)}
             >
               {name}
-            </button>
+            </UiButton>
           ))}
         </div>
         <div className="search-field">
-          <input
+          <UiInput
             placeholder="搜索图层 / 站点 / 坐标"
             value={query}
             onChange={(e) => setQuery(e.target.value)}
@@ -134,16 +137,16 @@ export function LayerPanel({
           </p>
         )}
         {query && result?.coordinate && (
-          <button
+          <UiButton
             className="search-result"
             onClick={() => map?.flyTo(...result.coordinate!)}
           >
             定位到 {result.coordinate.join(", ")}
-          </button>
+          </UiButton>
         )}
         {query &&
           matchingStations.map((s) => (
-            <button
+            <UiButton
               className="search-result"
               key={s.id}
               onClick={() => {
@@ -153,57 +156,54 @@ export function LayerPanel({
             >
               {s.name}
               <small>{s.id}</small>
-            </button>
+            </UiButton>
           ))}
-        <div className="layer-list">
-          {rows.map((l) => {
+        <UiList
+          className="layer-list"
+          split={false}
+          dataSource={rows}
+          renderItem={(l) => {
             const s = runtime?.snapshot(l.id);
             return (
-              <div
+              <UiList.Item
                 key={l.id}
                 data-layer={l.id}
                 data-status={s?.status ?? "off"}
                 className={`layer-item ${selected === l.id ? "selected" : ""}`}
               >
                 <div className="layer-row">
-                  <button
+                  <UiButton
                     className="layer-name"
                     onClick={() => setSelected(l.id)}
                   >
                     {l.name}
-                  </button>
+                  </UiButton>
                   <span className={`tag ${l.tag === "预警" ? "orange" : ""}`}>
                     {l.tag}
                   </span>
-                  <button
-                    role="switch"
+                  <Switch
                     aria-label={l.name}
-                    aria-checked={s?.status === "on" || s?.status === "loading"}
-                    className={`switch ${s?.status === "on" || s?.status === "loading" ? "on" : ""} ${s?.status === "loading" ? "busy" : ""}`}
+                    checked={s?.status === "on" || s?.status === "loading"}
+                    loading={s?.status === "loading"}
                     disabled={!runtime}
-                    onClick={() => {
+                    onChange={(checked) => {
                       setSelected(l.id);
-                      void runtime?.toggle(
-                        l.id,
-                        !["on", "loading"].includes(s?.status ?? ""),
-                      );
+                      void runtime?.toggle(l.id, checked);
                     }}
-                  >
-                    <span />
-                  </button>
+                  />
                 </div>
                 {s?.status === "error" && (
                   <div className="layer-error">
                     {s.error}
-                    <button onClick={() => void runtime?.toggle(l.id, true)}>
+                    <UiButton onClick={() => void runtime?.toggle(l.id, true)}>
                       重试
-                    </button>
+                    </UiButton>
                   </div>
                 )}
-              </div>
+              </UiList.Item>
             );
-          })}
-        </div>
+          }}
+        />
         {query &&
           result &&
           !result.coordinate &&
@@ -216,10 +216,10 @@ export function LayerPanel({
             <label htmlFor="opacity">图层透明度</label>
             <span>{Math.round((state?.opacity ?? 0.8) * 100)}%</span>
           </div>
-          <input
+          <UiSlider
             id="opacity"
             aria-label="选中图层透明度"
-            type="range"
+
             min="0"
             max="100"
             value={Math.round((state?.opacity ?? 0.8) * 100)}

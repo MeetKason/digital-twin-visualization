@@ -1,3 +1,11 @@
+import {
+  UiButton,
+  UiCard,
+  UiInput,
+  UiList,
+  UiSelect,
+  UiUpload,
+} from "../ui/controls";
 import { AsyncResourceOwner } from "./ownedResource";
 import { validateModelFile } from "./modelValidation";
 import {
@@ -60,7 +68,14 @@ export function ModelManager({
   const [previewAsset, setPreviewAsset] = useState<Asset | null>(null);
   async function upload() {
     // 模型先经服务端格式检查进入文件仓库，业务集合再保存该文件引用。
-    if (!file || !name.trim()) return;
+    if (!name.trim()) {
+      setError("请输入模型名称");
+      return;
+    }
+    if (!file) {
+      setError("请选择模型文件");
+      return;
+    }
     if (file.size > 100 * 1024 * 1024) {
       setError("模型文件不得超过100MB");
       return;
@@ -106,10 +121,18 @@ export function ModelManager({
       <p className="muted">
         新模型保存于服务器，最大 100MB；同租户、同地区的授权账号可共用。
       </p>
-      <div className="asset-list">
-        {business.data.assets
-          .filter((a) => a.kind === "model")
-          .map((a) => (
+      <UiCard
+        className="asset-list-card"
+        size="small"
+        styles={{ body: { padding: 4 } }}
+      >
+        <UiList
+          className="asset-list"
+          split={false}
+          dataSource={business.data.assets.filter((a) => a.kind === "model")}
+          locale={{ emptyText: "尚无模型文件" }}
+          renderItem={(a) => (
+            <UiList.Item key={a.id}>
             <div key={a.id} className="asset-row">
               <span className="model-badge">3D</span>
               <div>
@@ -120,7 +143,7 @@ export function ModelManager({
                 </small>
               </div>
               {!a.blobId.startsWith("srv_") && (
-                <button
+                <UiButton
                   onClick={() => {
                     void migrateFile(business.sceneId, a.blobId, a.fileName)
                       .then((blobId) =>
@@ -137,20 +160,20 @@ export function ModelManager({
                   }}
                 >
                   迁移到服务器
-                </button>
+                </UiButton>
               )}
-              <button onClick={() => setPreviewAsset(a)}>地图预览</button>
+              <UiButton onClick={() => setPreviewAsset(a)}>地图预览</UiButton>
               {onChoose && (
-                <button
+                <UiButton
                   onClick={() => {
                     onChoose(a.id);
                     onClose();
                   }}
                 >
                   绑定
-                </button>
+                </UiButton>
               )}
-              <button
+              <UiButton
                 onClick={() => {
                   if (
                     business.data.stations.some((s) => s.modelId === a.id) ||
@@ -173,10 +196,12 @@ export function ModelManager({
                 }}
               >
                 删除
-              </button>
+              </UiButton>
             </div>
-          ))}
-      </div>
+            </UiList.Item>
+          )}
+        />
+      </UiCard>
       {previewAsset && (
         <ModelPreview
           sceneId={business.sceneId}
@@ -196,7 +221,7 @@ export function ModelManager({
       >
         <label>
           模型名称
-          <input
+          <UiInput
             required
             value={name}
             onChange={(e) => setName(e.target.value)}
@@ -204,28 +229,31 @@ export function ModelManager({
         </label>
         <label>
           模型文件（GLB / GLTF）
-          <input
+          <UiUpload
+            className="file-button"
             required
-            type="file"
+            aria-label="选择模型文件"
             accept=".glb,.gltf"
             onChange={(e) => setFile(e.target.files?.[0] ?? null)}
-          />
+          >
+            选择模型文件
+          </UiUpload>
         </label>
         <label>
           模型类型
-          <select
+          <UiSelect
             value={modelType}
             onChange={(e) => setModelType(e.target.value)}
           >
             <option>气象设施模型</option>
             <option>建筑模型</option>
             <option>其他模型</option>
-          </select>
+          </UiSelect>
         </label>
         <div className="form-grid">
           <label>
             缩放比例
-            <input
+            <UiInput
               type="number"
               min=".001"
               step=".001"
@@ -235,7 +263,7 @@ export function ModelManager({
           </label>
           <label>
             模型朝向(°)
-            <input
+            <UiInput
               type="number"
               value={heading}
               onChange={(e) => setHeading(Number(e.target.value))}
@@ -247,9 +275,9 @@ export function ModelManager({
             {error}
           </p>
         )}
-        <button className="primary" disabled={busy}>
+        <UiButton className="primary" type="submit" disabled={busy}>
           {busy ? "正在保存…" : "登记模型"}
-        </button>
+        </UiButton>
       </form>
     </Modal>
   );

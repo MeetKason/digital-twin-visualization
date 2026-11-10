@@ -1,3 +1,4 @@
+import { UiButton, UiInput } from "../ui/controls";
 import { useEffect, useRef, useState } from "react";
 import type { MapFacade } from "@dtv/sdk";
 import { Icon } from "../Icon";
@@ -51,9 +52,9 @@ export function ToolsPanel({
       <h3>{title}</h3>
       <div className="tool-grid">
         {buttons.map(([label, fn]) => (
-          <button key={label} onClick={fn} disabled={!map}>
+          <UiButton key={label} onClick={fn} disabled={!map}>
             {label}
-          </button>
+          </UiButton>
         ))}
       </div>
     </>
@@ -62,9 +63,9 @@ export function ToolsPanel({
     <section className="tools-drawer panel">
       <div className="panel-heading">
         <strong>地图工具箱</strong>
-        <button className="mini" onClick={onClose}>
+        <UiButton className="mini" onClick={onClose}>
           收起 <Icon name="close" size={14} />
-        </button>
+        </UiButton>
       </div>
       <div className="panel-body">
         {section("地图基本控制", [
@@ -106,14 +107,14 @@ export function ToolsPanel({
             "拖拽地图浏览；滚轮缩放。测量结果仅供演示，当前地形为椭球时高程不能作为实测。"}
         </p>
         {measurement && (
-          <button
+          <UiButton
             onClick={() => {
               cleanup.current?.();
               setMeasurement("");
             }}
           >
             清除测量
-          </button>
+          </UiButton>
         )}
         {section("视角与路径", [
           [
@@ -136,13 +137,13 @@ export function ToolsPanel({
               ["none", "关闭模拟"],
             ] as const
           ).map(([id, label]) => (
-            <button
+            <UiButton
               key={id}
               className={environment === id ? "active" : ""}
               onClick={() => onEnvironment(id)}
             >
               {label}
-            </button>
+            </UiButton>
           ))}
         </div>
         <p className="tool-hint">视觉模拟，不改变观测数据。</p>
@@ -176,7 +177,7 @@ export function ToolsPanel({
             >
               <label>
                 经度（°）
-                <input
+                <UiInput
                   required
                   value={lon}
                   onChange={(e) => setLon(e.target.value)}
@@ -184,7 +185,7 @@ export function ToolsPanel({
               </label>
               <label>
                 纬度（°）
-                <input
+                <UiInput
                   required
                   value={lat}
                   onChange={(e) => setLat(e.target.value)}
@@ -192,7 +193,7 @@ export function ToolsPanel({
               </label>
               <label>
                 相机高度（m，选填）
-                <input
+                <UiInput
                   value={height}
                   onChange={(e) => setHeight(e.target.value)}
                 />
@@ -203,7 +204,7 @@ export function ToolsPanel({
                   {error}
                 </p>
               )}
-              <button className="primary">确定定位</button>
+              <UiButton className="primary" type="submit">确定定位</UiButton>
             </form>
           ) : dialog === "save" ? (
             <form
@@ -223,14 +224,14 @@ export function ToolsPanel({
             >
               <label>
                 视角名称
-                <input
+                <UiInput
                   required
                   maxLength={50}
                   value={name}
                   onChange={(e) => setName(e.target.value)}
                 />
               </label>
-              <button className="primary">保存书签</button>
+              <UiButton className="primary" type="submit">保存书签</UiButton>
             </form>
           ) : (
             <>
@@ -239,15 +240,15 @@ export function ToolsPanel({
               )}
               {business.data.bookmarks.map((b) => (
                 <div className="bookmark-row" key={b.id}>
-                  <button
+                  <UiButton
                     onClick={() => {
                       map?.restoreView?.(b.view);
                       setDialog(null);
                     }}
                   >
                     {b.name}
-                  </button>
-                  <button
+                  </UiButton>
+                  <UiButton
                     onClick={() => {
                       if (
                         business.data.stations.some(
@@ -267,7 +268,7 @@ export function ToolsPanel({
                     }}
                   >
                     删除
-                  </button>
+                  </UiButton>
                 </div>
               ))}
               {error && (

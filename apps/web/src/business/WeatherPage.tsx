@@ -1,3 +1,5 @@
+import { UiButton, UiCard } from "../ui/controls";
+import { Table, type TableColumnsType } from "antd";
 import { useEffect, useState } from "react";
 import { deriveMockWeatherWarning, type DataFrame, type MockWeatherTopic } from "@dtv/contracts";
 import type { MapFacade, LayerRuntime } from "@dtv/sdk";
@@ -69,34 +71,76 @@ export function WeatherPage({
   const statistic = values.length
     ? (topic === 2 ? Math.min(...values) : Math.max(...values)).toFixed(1)
     : "—";
+  const tableColumns: TableColumnsType<(typeof rows)[number]> = [
+    {
+      title: "站点名称",
+      key: "station",
+      render: (_, row) => (
+        <UiButton onClick={() => map?.flyTo(row.station.lon, row.station.lat, 9000)}>
+          {row.station.name}
+        </UiButton>
+      ),
+    },
+    { title: "站点类型", dataIndex: ["station", "type"], key: "type" },
+    {
+      title: "气象要素",
+      key: "element",
+      render: () => (topic === 2 ? "气温" : "小时降水"),
+    },
+    {
+      title: "当前值",
+      key: "value",
+      render: (_, row) => (
+        <>
+          {(topic === 2
+            ? row.observation?.elements.temperatureC
+            : row.observation?.elements.rainfallMm) ?? "—"}{" "}
+          {topic === 2 ? "°C" : "mm"}
+        </>
+      ),
+    },
+    {
+      title: "预警类型",
+      key: "warning",
+      render: (_, row) =>
+        row.warning
+          ? `${row.warning.level} · ${row.warning.type} ${row.warning.value.toFixed(1)} ${row.warning.unit}`
+          : "无 Mock 提示",
+    },
+    {
+      title: "有效时次",
+      key: "observedAt",
+      render: (_, row) => beijingTime(row.observation?.observedAt),
+    },
+  ];
   return (
     <div className="weather-page">
-      <aside className="topic-catalog panel">
+      <UiCard className="topic-catalog panel" bordered styles={{ body: { padding: 0 } }}>
         <div className="panel-heading">
           <strong>气象专题</strong>
         </div>
         <div className="panel-body">
           <p className="muted">选择专题 · 示例数据</p>
           {topics.map((t, i) => (
-            <button
+            <UiButton
               key={t}
               aria-label={t}
               className={`catalog-card ${topic === i ? "active" : ""}`}
               onClick={() => setTopic(i)}
             >
               {String(i + 1).padStart(2, "0")} {t}
-            </button>
+            </UiButton>
           ))}
           <p className="data-disclaimer">
             仅按页面展示的 Mock 阈值生成站点级提示，不生成正式风险范围或业务预警结论。
           </p>
         </div>
-      </aside>
+      </UiCard>
       <div className="topic-map-heading panel">
         {topics[topic]} · 重点站点 · {beijingTime(time)} UTC+8{" "}
         <span className="tag">Mock</span>
       </div>
-      <aside className="topic-metrics panel">
+      <UiCard className="topic-metrics panel" bordered styles={{ body: { padding: 0 } }}>
         <div className="panel-heading">
           <strong>专题指标</strong>
         </div>
@@ -121,51 +165,21 @@ export function WeatherPage({
             </p>
           )}
         </div>
-      </aside>
+      </UiCard>
       <section className="topic-table panel">
         <div className="panel-heading">
           <strong>重点站点与预警列表</strong>
           <span>Mock 阈值结果 · 非正式预警</span>
         </div>
-        <div className="table-scroll">
-          <table>
-            <thead>
-              <tr>
-                {[
-                  "站点名称",
-                  "站点类型",
-                  "气象要素",
-                  "当前值",
-                  "预警类型",
-                  "有效时次",
-                ].map((h) => (
-                  <th key={h}>{h}</th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {rows.map(({ station: s, observation: o, warning }) => (
-                <tr key={s.id}>
-                  <td>
-                    <button onClick={() => map?.flyTo(s.lon, s.lat, 9000)}>
-                      {s.name}
-                    </button>
-                  </td>
-                  <td>{s.type}</td>
-                  <td>{topic === 2 ? "气温" : "小时降水"}</td>
-                  <td>
-                    {(topic === 2
-                      ? o?.elements.temperatureC
-                      : o?.elements.rainfallMm) ?? "—"}{" "}
-                    {topic === 2 ? "°C" : "mm"}
-                  </td>
-                  <td>{warning ? `${warning.level} · ${warning.type} ${warning.value.toFixed(1)} ${warning.unit}` : "无 Mock 提示"}</td>
-                  <td>{beijingTime(o?.observedAt)}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+        <Table
+          className="weather-table"
+          size="small"
+          rowKey={(row) => row.station.id}
+          dataSource={rows}
+          columns={tableColumns}
+          pagination={{ pageSize: 10, showSizeChanger: false, size: "small" }}
+          scroll={{ x: "max-content" }}
+        />
       </section>
     </div>
   );
