@@ -129,11 +129,11 @@ export default function MapView({
             // 初始镜头以低角度朝向西安南部山地，避免真实地形只呈现为俯视卫星图。
             destination: Cartesian3.fromDegrees(
               ...scene.center,
-              Math.min(scene.height * 0.1, 12000),
+              Math.min(scene.height * 0.2, 25000),
             ),
             orientation: {
               heading: CesiumMath.toRadians(180),
-              pitch: CesiumMath.toRadians(-12),
+              pitch: CesiumMath.toRadians(-7),
               roll: 0,
             },
             duration: 0.7,
