@@ -264,33 +264,52 @@ function WorkArea({ scene }: { scene: SceneConfig }) {
   useEffect(() => {
     const ctrl = new AbortController();
     let pending = false;
-    const timer = setInterval(() => {
-      if (pending || refreshing.current) return;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const schedule = (delay: number) => {
+      if (ctrl.signal.aborted || document.visibilityState !== "visible") return;
+      timer = setTimeout(() => void poll(), delay);
+    };
+    const poll = async () => {
+      if (pending || refreshing.current || ctrl.signal.aborted) {
+        schedule(30000);
+        return;
+      }
       pending = true;
-      void api
-        .ingestion(scene.id, ctrl.signal)
-        .then((state) => {
-          if (ctrl.signal.aborted || refreshing.current) return;
-          const next = `${state.mode}:${state.watermark}:${state.lastSuccessAt}`;
-          if (
-            !signature.current ||
-            refreshNeeded.current ||
-            next !== signature.current
-          )
-            onDataChanged();
-          else setTimesError("");
-        })
-        .catch((e) => {
-          if (!ctrl.signal.aborted)
-            setTimesError("采集状态刷新失败：" + e.message);
-        })
-        .finally(() => {
-          pending = false;
-        });
-    }, 5000);
+      let activeJobs = false;
+      try {
+        const state = await api.ingestion(scene.id, ctrl.signal);
+        if (ctrl.signal.aborted || refreshing.current) return;
+        const next = `${state.mode}:${state.watermark}:${state.lastSuccessAt}`;
+        activeJobs = state.jobs.some((job) =>
+          ["queued", "running", "retrying"].includes(job.status),
+        );
+        if (
+          !signature.current ||
+          refreshNeeded.current ||
+          next !== signature.current
+        )
+          onDataChanged();
+        else setTimesError("");
+      } catch (e) {
+        if (!ctrl.signal.aborted)
+          setTimesError("采集状态刷新失败：" + (e as Error).message);
+      } finally {
+        pending = false;
+        schedule(activeJobs ? 5000 : 30000);
+      }
+    };
+    const onVisibilityChange = () => {
+      if (timer) clearTimeout(timer);
+      timer = undefined;
+      if (document.visibilityState === "visible") void poll();
+    };
+    // 地图空闲时每30秒检查；存在采集任务时保持5秒刷新。
+    schedule(30000);
+    document.addEventListener("visibilitychange", onVisibilityChange);
     return () => {
       ctrl.abort();
-      clearInterval(timer);
+      if (timer) clearTimeout(timer);
+      document.removeEventListener("visibilitychange", onVisibilityChange);
     };
   }, [scene.id, onDataChanged]);
   useEffect(() => {

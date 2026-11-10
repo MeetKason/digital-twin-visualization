@@ -82,7 +82,8 @@ export function IngestionPanel({
     [end, setEnd] = useState(() => localHour(Date.now())),
     [frame, setFrame] = useState<DataFrame | null>(null);
   const version = useRef(""),
-    alive = useRef(true);
+    alive = useRef(true),
+    scheduleStatusRef = useRef<(delay: number) => void>(() => {});
   const base = `/api/scenes/${encodeURIComponent(sceneId)}/ingestion`;
   const scopedBase = `${base}?productId=${encodeURIComponent(productId)}`;
   const scopedHealth = `${base}/health?productId=${encodeURIComponent(productId)}`;
@@ -90,14 +91,27 @@ export function IngestionPanel({
     alive.current = true;
     const controller = new AbortController();
     let pendingStatus = false;
-    // 定时刷新任务和进度，清理时取消未完成请求并停止定时器。
+    let pendingHealth = false;
+    let statusTimer: ReturnType<typeof setTimeout> | undefined;
+    let healthTimer: ReturnType<typeof setTimeout> | undefined;
+    const clearTimers = () => {
+      if (statusTimer) clearTimeout(statusTimer);
+      if (healthTimer) clearTimeout(healthTimer);
+      statusTimer = undefined;
+      healthTimer = undefined;
+    };
+    // 空闲时降低请求频率；任务执行期间保持较快进度反馈。
     const refreshStatus = async () => {
-      if (pendingStatus) return;
+      if (pendingStatus || controller.signal.aborted) return;
       pendingStatus = true;
+      let hasActiveJobs = false;
       try {
         const next = await json<IngestionStatus>(scopedBase, controller.signal);
         if (!controller.signal.aborted) {
           setStatus(next);
+          hasActiveJobs = next.jobs.some((job) =>
+            ["queued", "running", "retrying"].includes(job.status),
+          );
           const stamp = `${productId}:${next.mode}:${next.watermark}:${next.lastSuccessAt}`;
           if (version.current && version.current !== stamp) onDataChanged();
           version.current = stamp;
@@ -107,8 +121,11 @@ export function IngestionPanel({
       } finally {
         pendingStatus = false;
       }
+      return hasActiveJobs ? 3000 : 30000;
     };
     const refreshHealth = async () => {
+      if (pendingHealth || controller.signal.aborted) return;
+      pendingHealth = true;
       try {
         const next = await json<IngestionHealth>(
           scopedHealth,
@@ -117,6 +134,34 @@ export function IngestionPanel({
         if (!controller.signal.aborted) setHealth(next);
       } catch (e) {
         if (!controller.signal.aborted) setError((e as Error).message);
+      } finally {
+        pendingHealth = false;
+      }
+    };
+    const scheduleStatus = (delay: number) => {
+      if (controller.signal.aborted || document.visibilityState !== "visible") return;
+      statusTimer = setTimeout(async () => {
+        const nextDelay = await refreshStatus();
+        scheduleStatus(nextDelay ?? 30000);
+      }, delay);
+    };
+    scheduleStatusRef.current = (delay) => {
+      if (statusTimer) clearTimeout(statusTimer);
+      scheduleStatus(delay);
+    };
+    const scheduleHealth = () => {
+      if (controller.signal.aborted || document.visibilityState !== "visible") return;
+      healthTimer = setTimeout(async () => {
+        await refreshHealth();
+        scheduleHealth();
+      }, 60000);
+    };
+    const onVisibilityChange = () => {
+      clearTimers();
+      if (document.visibilityState === "visible") {
+        void refreshStatus().then((delay) => scheduleStatus(delay ?? 30000));
+        void refreshHealth();
+        scheduleHealth();
       }
     };
     void authApi
@@ -130,15 +175,16 @@ export function IngestionPanel({
         if (!controller.signal.aborted) setProducts(items);
       })
       .catch(() => {});
-    void refreshStatus();
+    void refreshStatus().then((delay) => scheduleStatus(delay ?? 30000));
     void refreshHealth();
-    const timer = setInterval(() => void refreshStatus(), 1500);
-    const healthTimer = setInterval(() => void refreshHealth(), 15000);
+    scheduleHealth();
+    document.addEventListener("visibilitychange", onVisibilityChange);
     return () => {
       alive.current = false;
       controller.abort();
-      clearInterval(timer);
-      clearInterval(healthTimer);
+      clearTimers();
+      scheduleStatusRef.current = () => {};
+      document.removeEventListener("visibilitychange", onVisibilityChange);
     };
   }, [base, scopedBase, scopedHealth, productId, onDataChanged]);
   /** 执行采集面板的统一写请求，随后刷新服务端任务状态。 */
@@ -160,6 +206,13 @@ export function IngestionPanel({
       if (!alive.current) return;
       setStatus(next);
       setHealth(nextHealth);
+      scheduleStatusRef.current(
+        next.jobs.some((job) =>
+          ["queued", "running", "retrying"].includes(job.status),
+        )
+          ? 3000
+          : 30000,
+      );
     } catch (e) {
       if (alive.current) setError((e as Error).message);
     } finally {
