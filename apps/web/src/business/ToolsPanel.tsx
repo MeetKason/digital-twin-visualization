@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import type { MapFacade } from "@dtv/sdk";
+import { Icon } from "../Icon";
 import {
   parseCoordinate,
   distanceMeters,
@@ -62,7 +63,7 @@ export function ToolsPanel({
       <div className="panel-heading">
         <strong>地图工具箱</strong>
         <button className="mini" onClick={onClose}>
-          收起 ×
+          收起 <Icon name="close" size={14} />
         </button>
       </div>
       <div className="panel-body">
@@ -123,7 +124,7 @@ export function ToolsPanel({
             },
           ],
           ["历史书签", () => setDialog("bookmarks")],
-          ["自定义路径漫游 →", onRoam],
+          ["自定义路径漫游", onRoam],
         ])}
         <h3>自然环境模拟</h3>
         <div className="tool-grid">

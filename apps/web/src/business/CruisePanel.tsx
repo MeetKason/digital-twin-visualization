@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { Icon } from "../Icon";
 import type { CruiseController, CruiseProgress, MapFacade } from "@dtv/sdk";
 import { movePoint, validatePlan, type CruisePoint } from "@dtv/contracts";
 import type { Business } from "./useBusiness";
@@ -277,7 +278,7 @@ export function CruisePanel({
                         }))
                       }
                     >
-                      ↑
+                      <Icon name="up" size={16} />
                     </button>
                     <button
                       aria-label={`下移节点${i + 1}`}
@@ -289,7 +290,7 @@ export function CruisePanel({
                         }))
                       }
                     >
-                      ↓
+                      <Icon name="down" size={16} />
                     </button>
                     <button
                       aria-label={`删除节点${i + 1}`}
@@ -300,7 +301,7 @@ export function CruisePanel({
                         }))
                       }
                     >
-                      ×
+                      <Icon name="close" size={16} />
                     </button>
                   </div>
                 ))}

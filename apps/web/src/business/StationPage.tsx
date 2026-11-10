@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { Icon } from "../Icon";
 import {
   csvCell,
   parseStationCsv,
@@ -361,7 +362,7 @@ export function StationPage({
               .map((a) => (
                 <div key={a.id} className="asset-row">
                   <span className="model-badge">
-                    {a.kind === "video" ? "▶" : "PDF"}
+                    {a.kind === "video" ? <Icon name="video" size={16} /> : "PDF"}
                   </span>
                   <div>
                     <strong>{a.name}</strong>

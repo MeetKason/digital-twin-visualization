@@ -1,28 +1,61 @@
-const icons: Record<string, string> = {
-  home: "4f3c4.svg",
-  roam: "be045.svg",
-  station: "23c7d.svg",
-  weather: "0875e.svg",
-  device: "9eae8.svg",
-  settings: "0737f.svg",
-  user: "29383.svg",
-  chevron: "17721.svg",
-  layers: "65ff1.svg",
-  tools: "c1c35.svg",
-  north: "2b899.svg",
-  plus: "bc58c.svg",
-  minus: "e21b3.svg",
-  fullscreen: "10a3f.svg",
-  locate: "efdb2.svg",
-  search: "0a56c.svg",
-  play: "7cbc9.svg",
-  previous: "8a592.svg",
-  next: "42758.svg",
+/** 将界面使用的逻辑名称映射到项目提供的 iconfont 字形。 */
+const icons: Record<string, { normal: string; active?: string }> = {
+  home: { normal: "shouye-weixuanzhong", active: "shouye-xuanzhong" },
+  roam: { normal: "manyou-weixuanzhong", active: "manyou-xuanzhong" },
+  station: {
+    normal: "dianweiguanli-weixuanzhong",
+    active: "dianweiguanli-xuanzhong",
+  },
+  weather: {
+    normal: "qixiangzhuanti-weixuanzhong",
+    active: "qixiangzhuanti-xuanzhong",
+  },
+  device: {
+    normal: "shebeijiankong-weixuanzhong",
+    active: "shebeijiankong-xuanzhong",
+  },
+  settings: { normal: "shezhi-weixuanzhong", active: "shezhi-xuanzhong" },
+  user: { normal: "zhanghao" },
+  password: { normal: "mima" },
+  chevron: { normal: "you" },
+  close: { normal: "jiajianduicuo-2" },
+  layers: { normal: "tuceng" },
+  tools: { normal: "gongjuxiang" },
+  north: { normal: "zhibei" },
+  plus: { normal: "jiajianduicuo" },
+  minus: { normal: "jiajianduicuo-1" },
+  fullscreen: { normal: "quanping" },
+  locate: { normal: "dingwei" },
+  search: { normal: "dingwei" },
+  play: { normal: "bofang" },
+  pause: { normal: "zanting" },
+  previous: { normal: "houtui" },
+  next: { normal: "qianjin" },
+  up: { normal: "shang" },
+  down: { normal: "xia" },
+  video: { normal: "bofang" },
 };
-export function Icon({ name, size = 24 }: { name: string; size?: number }) {
+
+export function Icon({
+  name,
+  size = 24,
+  active = false,
+}: {
+  name: string;
+  size?: number;
+  active?: boolean;
+}) {
+  const icon = icons[name] ?? icons.home;
+  const fontClass = active && icon.active ? icon.active : icon.normal;
   return (
-    <span className="icon" style={{ width: size, height: size }}>
-      <img src={`/design/${icons[name] ?? icons.home}`} alt="" />
+    <span
+      className="icon"
+      style={{ width: size, height: size, fontSize: size }}
+      aria-hidden="true"
+    >
+      <svg className="svgfont" viewBox="0 0 1024 1024" focusable="false">
+        <use href={`#icon-${fontClass}`} />
+      </svg>
     </span>
   );
 }

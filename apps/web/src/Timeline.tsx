@@ -54,7 +54,7 @@ export function Timeline({
             className="primary"
             onClick={() => onPlaying(!playing)}
           >
-            {playing ? "Ⅱ" : <Icon name="play" size={20} />}
+            {playing ? <Icon name="pause" size={20} /> : <Icon name="play" size={20} />}
           </button>
           <button
             disabled={!times.length}

@@ -88,7 +88,7 @@ export function LayerPanel({
       <div className="panel-heading">
         <strong>地图内容</strong>
         <button className="mini" aria-label="收起图层面板" onClick={onClose}>
-          收起 ×
+          收起 <Icon name="close" size={14} />
         </button>
       </div>
       <div className="panel-body">

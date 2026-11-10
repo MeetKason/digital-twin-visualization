@@ -40,6 +40,7 @@ import { api, runtimeConfig } from "./api";
 import { distanceMeters, areaMeters, type Coordinate } from "@dtv/contracts";
 import { createTiandituProvider } from "./tianditu";
 import { createTiandituTerrainProvider } from "./tiandituTerrain";
+import { createStationMarker } from "./stationIcons";
 interface Props {
   scene: SceneConfig;
   stations: Station[];
@@ -305,22 +306,24 @@ export default function MapView({
               },
             });
           } else if (descriptor.rendererType === "station") {
-            latestStations.current
-              .filter((s) =>
-                id === "stations"
-                  ? s.type === "国家有人站"
-                  : s.type === descriptor.name,
-              )
-              .forEach((s) =>
+            const visibleStations = latestStations.current.filter((s) =>
+              id === "stations"
+                ? s.type === "国家有人站"
+                : s.type === descriptor.name,
+            );
+            await Promise.all(
+              visibleStations.map(async (s) => {
+                const marker = await createStationMarker(s.type);
+                if (signal.aborted || disposed) return;
                 source.entities.add({
                   id: s.id,
                   position: Cartesian3.fromDegrees(s.lon, s.lat, 40),
-                  point: {
+                  billboard: {
+                    image: marker,
+                    width: 30,
+                    height: 30,
                     heightReference: HeightReference.RELATIVE_TO_GROUND,
-                    pixelSize: 12,
-                    color: Color.fromCssColorString("#1263c4"),
-                    outlineColor: Color.WHITE,
-                    outlineWidth: 3,
+                    verticalOrigin: VerticalOrigin.BOTTOM,
                     disableDepthTestDistance: Infinity,
                   },
                   label: {
@@ -332,11 +335,12 @@ export default function MapView({
                     outlineWidth: 3,
                     style: LabelStyle.FILL_AND_OUTLINE,
                     verticalOrigin: VerticalOrigin.BOTTOM,
-                    pixelOffset: new Cartesian2(0, -15),
+                    pixelOffset: new Cartesian2(0, -32),
                     disableDepthTestDistance: Infinity,
                   },
-                }),
-              );
+                });
+              }),
+            );
           } else if (frame.gridCells?.length) {
             for (const cell of frame.gridCells) {
               const range = id === "radar" ? 70 : id === "wind" ? 25 : id === "forecast" ? 45 : id === "warning" ? 4 : 100;

@@ -1,4 +1,5 @@
 import { useEffect, type ReactNode } from "react";
+import { Icon } from "../Icon";
 export function Modal({
   title,
   onClose,
@@ -30,7 +31,7 @@ export function Modal({
             className="mini"
             onClick={onClose}
           >
-            ×
+            <Icon name="close" size={16} />
           </button>
         </div>
         <div className="panel-body">{children}</div>

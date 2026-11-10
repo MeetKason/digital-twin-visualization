@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { authApi } from "./api";
+import { Icon } from "./Icon";
 export function Login({
   onEnter,
   demoEnabled,
@@ -37,7 +38,7 @@ export function Login({
         <h1>数字孪生可视化系统</h1>
         <p className="english-name">Digital Twin Visualization</p>
         <div className="login-field">
-          <img src="/design/35798.svg" alt="" />
+          <Icon name="user" size={24} />
           <input
             aria-label="账号"
             placeholder="请输入账号"
@@ -47,7 +48,7 @@ export function Login({
           />
         </div>
         <div className="login-field">
-          <img src="/design/2cecb.svg" alt="" />
+          <Icon name="password" size={24} />
           <input
             aria-label="密码"
             type="password"

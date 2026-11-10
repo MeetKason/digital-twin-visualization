@@ -143,6 +143,10 @@ digital-twin-visualization/
 
 WMTS 使用 `type: "wmts"` 并配置 `url, layer, style, format, tileMatrixSetID`。本地反向代理 `/maps` 路径需在 Nginx 中增加到局方地图服务的授权映射；当前 nginx.conf 未预设客户地址。部署前核对 CRS、矩阵、覆盖级别、认证、跨域及证书。浏览器配置不得存放天擎凭据或长期敏感令牌。
 
+## 项目图标资源
+
+项目界面图标统一使用 `apps/web/public/iconfont.js` 提供的多色 SVG Symbol。`apps/web/src/Icon.tsx` 将页面中的语义名称映射到 Symbol；`apps/web/src/icons/iconfont.catalog.json` 保存完整图标目录。地图监测站的彩色标记由 `apps/web/src/stationIcons.ts` 按站点类型提取原始 SVG Symbol，并生成 Cesium Billboard 图像。更新图标集时替换 `iconfont.js` 和目录 JSON，并核对 `Icon.tsx` 与站点类型映射。
+
 ## API
 
 除 health、auth/session 与登录入口外，业务接口需要有效 HttpOnly 会话。写入必须有 `X-DTV-Request: 1`，浏览器 Origin 必须匹配 Host。天擎适配器已实现但尚无真实账号联调；生产启动保护继续保留。

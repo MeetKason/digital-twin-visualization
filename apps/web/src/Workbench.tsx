@@ -327,7 +327,7 @@ function WorkArea({ scene }: { scene: SceneConfig }) {
             className={activeMenu === id ? "active" : ""}
             onClick={() => setActiveMenu(id)}
           >
-            <Icon name={id} />
+            <Icon name={id} active={activeMenu === id} />
             <span>{label}</span>
           </button>
         ))}
@@ -567,7 +567,7 @@ function StationDetails({
       <div className="panel-heading">
         <strong>站点观测详情</strong>
         <button className="mini" aria-label="关闭站点详情" onClick={onClose}>
-          关闭 ×
+          关闭 <Icon name="close" size={14} />
         </button>
       </div>
       <div className="panel-body">
