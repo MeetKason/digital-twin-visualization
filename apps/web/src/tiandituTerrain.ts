@@ -12,9 +12,54 @@ const TDT_TILE_SIZE = 150;
 const TDT_MAX_SERVICE_LEVEL = 12;
 const TDT_MAX_CESIUM_LEVEL = TDT_MAX_SERVICE_LEVEL - 1;
 const TDT_MIN_CESIUM_LEVEL = 5;
+const MAX_CONCURRENT_TERRAIN_REQUESTS = 4;
 const EMPTY_HEIGHTMAP = new Float32Array(
   CESIUM_TILE_SIZE * CESIUM_TILE_SIZE,
 );
+let activeTerrainRequests = 0;
+const terrainRequestQueue: Array<() => void> = [];
+
+/** 限制自定义 fetch 的并发量，避免低角度视角瞬间打满天地图服务。 */
+async function withTerrainRequestSlot<T>(request: () => Promise<T>): Promise<T> {
+  if (activeTerrainRequests >= MAX_CONCURRENT_TERRAIN_REQUESTS) {
+    await new Promise<void>((resolve) => terrainRequestQueue.push(resolve));
+  }
+  activeTerrainRequests += 1;
+  try {
+    return await request();
+  } finally {
+    activeTerrainRequests -= 1;
+    terrainRequestQueue.shift()?.();
+  }
+}
+
+/** 网络抖动、限流或 5xx 时短暂重试一次；其他授权错误直接交给 Cesium 处理。 */
+async function fetchTerrainTile(url: URL): Promise<Uint8Array> {
+  let lastError: unknown;
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    let response: Response | undefined;
+    try {
+      response = await withTerrainRequestSlot(() =>
+        fetch(url, {
+          mode: "cors",
+          cache: "no-store",
+          signal: AbortSignal.timeout(15000),
+        }),
+      );
+    } catch (error) {
+      lastError = error;
+    }
+    if (response?.ok) return new Uint8Array(await response.arrayBuffer());
+    if (response) {
+      lastError = new Error(`天地图高程请求失败（HTTP ${response.status}）`);
+      if (response.status !== 429 && response.status < 500) throw lastError;
+    }
+    if (attempt === 0) {
+      await new Promise((resolve) => window.setTimeout(resolve, 350));
+    }
+  }
+  throw lastError instanceof Error ? lastError : new Error("天地图高程请求失败");
+}
 
 /**
  * 创建 Cesium 可用的天地图三维高程 Provider。
@@ -48,17 +93,8 @@ export function createTiandituTerrainProvider(key: string): TerrainProvider {
         tk: key,
       }).toString();
 
-      const response = await fetch(url, {
-        mode: "cors",
-        cache: "no-store",
-        signal: AbortSignal.timeout(15000),
-      });
-      if (!response.ok) {
-        throw new Error(`天地图高程请求失败（HTTP ${response.status}）`);
-      }
-
       // 解压失败或采样长度不符时抛错，让 Cesium 的 terrain errorEvent 负责回退提示。
-      const compressed = new Uint8Array(await response.arrayBuffer());
+      const compressed = await fetchTerrainTile(url);
       const source = inflate(compressed);
       return decodeTiandituHeightmap(source);
     },

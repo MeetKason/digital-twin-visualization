@@ -248,20 +248,19 @@ export default function MapView({
               if (terrainLoadTimer !== undefined) window.clearTimeout(terrainLoadTimer);
               terrainLoadTimer = undefined;
               if (disposed || v.isDestroyed()) return;
-              let terrainFailed = false;
+              let terrainWarningShown = false;
               removeTerrainErrorListener = terrain.errorEvent.addEventListener(
                 (tileError: TileProviderError) => {
                   if (disposed || v.isDestroyed()) return;
-                  if (terrainFailed) return;
-                  if (tileError.retry) {
-                    setNotice(`${baseMapLabel} · 正在重试真实地形瓦片`);
+                  // 单个瓦片的网络错误不能把整套已加载地形替换成椭球；先让 Cesium 重试一次。
+                  if (tileError.timesRetried < 1) {
+                    tileError.retry = true;
                     return;
                   }
-                  terrainFailed = true;
-                  setEllipsoidFallback(`${providerName}地形瓦片加载失败`);
-                  setError(`${providerName}地形瓦片访问失败，请检查令牌授权和网络连接`);
-                  removeTerrainErrorListener?.();
-                  removeTerrainErrorListener = undefined;
+                  if (terrainWarningShown) return;
+                  terrainWarningShown = true;
+                  setNotice(`${baseMapLabel} · ${providerName}真实地形已启用，部分瓦片暂不可用`);
+                  setError(`${providerName}个别地形瓦片加载失败，其余地形继续显示；请检查网络或服务限流`);
                 },
               );
               v.terrainProvider = terrain;
