@@ -250,10 +250,12 @@ class ApiController {
     @Param("id") id: string,
   ) {
     const user = await this.p.access(req, id);
-    const assets = (await this.p.business(user, id)).data.assets;
+    const references = await this.p.fileReferenceStatus(user, id);
     return (await this.p.files.list(user.tenantId, id)).map((file) => ({
       ...file,
-      referenced: assets.some((a) => a.blobId === file.id),
+      referenced: references.draft.has(file.id) || references.publication.has(file.id),
+      referencedInDraft: references.draft.has(file.id),
+      referencedInPublication: references.publication.has(file.id),
     }));
   }
   /** 文件以流方式写入受控仓库，租户和地区范围来自当前服务端会话。 */

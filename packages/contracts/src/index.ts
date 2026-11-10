@@ -6,6 +6,8 @@ export const SceneSchema = z.object({
   regionCode: z.string(),
   center: z.tuple([z.number().min(-180).max(180), z.number().min(-90).max(90)]),
   height: z.number().positive(),
+  /** 同源行政边界静态资源；未配置地区继续显示明确标记的示例边框。 */
+  boundaryUrl: z.string().regex(/^\/geojson\/[a-zA-Z0-9_-]+\.geojson$/).optional(),
   modules: z.array(z.string()),
   revision: z.string(),
   source: z.literal("mock"),

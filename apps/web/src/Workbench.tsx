@@ -1,4 +1,5 @@
 import { UiButton, UiSelect } from "./ui/controls";
+import { Alert } from "antd";
 import {
   lazy,
   Suspense,
@@ -270,7 +271,7 @@ function WorkArea({ scene }: { scene: SceneConfig }) {
     };
     const poll = async () => {
       if (pending || refreshing.current || ctrl.signal.aborted) {
-        schedule(30000);
+        schedule(refreshNeeded.current ? 3000 : 30000);
         return;
       }
       pending = true;
@@ -294,7 +295,7 @@ function WorkArea({ scene }: { scene: SceneConfig }) {
           setTimesError("采集状态刷新失败：" + (e as Error).message);
       } finally {
         pending = false;
-        schedule(activeJobs ? 5000 : 30000);
+        schedule(refreshNeeded.current ? 3000 : activeJobs ? 5000 : 30000);
       }
     };
     const onVisibilityChange = () => {
@@ -303,7 +304,8 @@ function WorkArea({ scene }: { scene: SceneConfig }) {
       if (document.visibilityState === "visible") void poll();
     };
     // 地图空闲时每30秒检查；存在采集任务时保持5秒刷新。
-    schedule(30000);
+    // 首屏时次读取失败时尽快恢复，正常空闲页面仍保持低频检查。
+    schedule(refreshNeeded.current ? 3000 : 30000);
     document.addEventListener("visibilitychange", onVisibilityChange);
     return () => {
       ctrl.abort();
@@ -505,16 +507,11 @@ function WorkArea({ scene }: { scene: SceneConfig }) {
             <SettingsPage business={business} onDataChanged={onDataChanged} />
           </Suspense>
         )}
-        {modelError && (
-          <p role="alert" className="business-storage-error">
-            {modelError}
-          </p>
-        )}
-        {timesError && (
-          <p role="alert" className="business-storage-error">
-            时次读取失败：{timesError}
-          </p>
-        )}
+        <div className="workbench-alerts">
+          {modelError && <Alert type="error" showIcon message={modelError} />}
+          {timesError && <Alert type="warning" showIcon message={`时次读取失败：${timesError}`} />}
+          {business.error && <Alert type="error" showIcon message={business.error} />}
+        </div>
         <div className="business-sync">
           <span role="status">{business.status}</span>
           {business.error && (
@@ -528,11 +525,7 @@ function WorkArea({ scene }: { scene: SceneConfig }) {
             </UiButton>
           )}
         </div>
-        {business.error && (
-          <p role="alert" className="business-storage-error">
-            {business.error}
-          </p>
-        )}
+
         <div className="map-legend" hidden={activeMenu !== "home"}>
           <strong>气温 °C · 示例色标</strong>
           <div className="legend-gradient" />

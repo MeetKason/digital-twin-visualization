@@ -1,6 +1,6 @@
 import { UiButton } from "../ui/controls";
 import { lazy, Suspense, useCallback, useEffect, useState } from "react";
-import { Alert, Button, ConfigProvider, Menu } from "antd";
+import { Alert, Button, ConfigProvider, Menu, Table, Tag, type TableColumnsType } from "antd";
 import zhCN from "antd/locale/zh_CN";
 import type { Business } from "./useBusiness";
 import { download } from "./useBusiness";
@@ -211,6 +211,16 @@ export function DevicePage({ sceneId }: { sceneId: string }) {
     warning: "告警（Mock）",
     offline: "离线（Mock）",
   };
+  const columns: TableColumnsType<(typeof devices)[number]> = [
+    { title: "设备", key: "name", width: 210, render: (_, device) => <div className="device-name-cell"><strong>{device.name}</strong><small>{device.id}</small></div> },
+    { title: "类型", dataIndex: "type", width: 150 },
+    { title: "状态", key: "status", width: 150, render: (_, device) => <Tag color={device.status === "online" ? "green" : device.status === "warning" ? "orange" : "default"}>{statusLabel[device.status]}</Tag> },
+    { title: "温度", key: "temperature", width: 100, align: "right", render: (_, device) => `${device.temperatureC.toFixed(1)} °C` },
+    { title: "电池", key: "battery", width: 90, align: "right", render: (_, device) => `${device.batteryPercent}%` },
+    { title: "信号", key: "signal", width: 110, align: "right", render: (_, device) => `${device.signalDbm} dBm` },
+    { title: "最近心跳", key: "lastSeen", width: 200, render: (_, device) => new Date(device.lastSeenAt).toLocaleString("zh-CN", { timeZone: "Asia/Shanghai", hour12: false }) },
+    { title: "数据源", dataIndex: "protocol", width: 160 },
+  ];
   return (
     <section className="business-page device-page panel">
       <div className="panel-heading">
@@ -235,44 +245,17 @@ export function DevicePage({ sceneId }: { sceneId: string }) {
           <span>异常 {warning}</span>
           <span>离线 {offline}</span>
         </div>
-        <div className="table-scroll">
-          <table aria-label="Mock 设备遥测清单">
-            <thead>
-              <tr>
-                <th>设备</th>
-                <th>类型</th>
-                <th>状态</th>
-                <th>温度</th>
-                <th>电池</th>
-                <th>信号</th>
-                <th>最近心跳</th>
-                <th>数据源</th>
-              </tr>
-            </thead>
-            <tbody>
-              {devices.map((device) => (
-                <tr key={device.id} data-status={device.status}>
-                  <td>
-                    {device.name}
-                    <small>{device.id}</small>
-                  </td>
-                  <td>{device.type}</td>
-                  <td>{statusLabel[device.status]}</td>
-                  <td>{device.temperatureC.toFixed(1)} °C</td>
-                  <td>{device.batteryPercent}%</td>
-                  <td>{device.signalDbm} dBm</td>
-                  <td>
-                    {new Date(device.lastSeenAt).toLocaleString("zh-CN", {
-                      timeZone: "Asia/Shanghai",
-                      hour12: false,
-                    })}
-                  </td>
-                  <td>{device.protocol}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+        <Table
+          aria-label="Mock 设备遥测清单"
+          className="device-table"
+          size="small"
+          rowKey="id"
+          tableLayout="fixed"
+          dataSource={devices}
+          columns={columns}
+          pagination={{ pageSize: 10, hideOnSinglePage: true, showSizeChanger: false }}
+          scroll={{ x: 1150 }}
+        />
         <h3>本机 API 健康</h3>
         <dl>
           <dt>API 状态</dt>

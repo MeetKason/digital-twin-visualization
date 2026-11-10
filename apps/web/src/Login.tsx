@@ -1,5 +1,7 @@
 import { UiButton, UiInput } from "./ui/controls";
 import { useState } from "react";
+import { ConfigProvider } from "antd";
+import zhCN from "antd/locale/zh_CN";
 import { authApi } from "./api";
 import { Icon } from "./Icon";
 export function Login({
@@ -29,6 +31,7 @@ export function Login({
     }
   }
   return (
+    <ConfigProvider locale={zhCN}>
     <main className="login-page">
       <div className="login-background" aria-hidden="true">
         <img className="earth" src="/design/eb0d0.png" alt="" />
@@ -38,27 +41,26 @@ export function Login({
       <section className="login-card">
         <h1>数字孪生可视化系统</h1>
         <p className="english-name">Digital Twin Visualization</p>
-        <div className="login-field">
-          <Icon name="user" size={24} />
-          <UiInput
-            aria-label="账号"
-            placeholder="请输入账号"
-            value={username}
-            onChange={(e) => setUsername(e.target.value)}
-            autoComplete="username"
-          />
-        </div>
-        <div className="login-field">
-          <Icon name="password" size={24} />
-          <UiInput
-            aria-label="密码"
-            type="password"
-            placeholder="请输入密码"
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-            autoComplete="current-password"
-          />
-        </div>
+        <UiInput
+          className="login-field"
+          prefix={<Icon name="user" size={22} />}
+          aria-label="账号"
+          placeholder="请输入账号"
+          value={username}
+          onChange={(e) => setUsername(e.target.value)}
+          autoComplete="username"
+          disabled={busy}
+        />
+        <UiInput.Password
+          className="login-field"
+          prefix={<Icon name="password" size={22} />}
+          aria-label="密码"
+          placeholder="请输入密码"
+          value={password}
+          onChange={(e) => setPassword(e.target.value)}
+          autoComplete="current-password"
+          disabled={busy}
+        />
         <UiButton
           className="primary login-submit"
           disabled={busy || !username || !password}
@@ -96,5 +98,6 @@ export function Login({
         Digital Twin Visualization · 数字孪生可视化系统
       </footer>
     </main>
+    </ConfigProvider>
   );
 }

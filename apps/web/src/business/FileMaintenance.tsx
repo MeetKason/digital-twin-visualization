@@ -5,13 +5,16 @@ export function FileMaintenance({ sceneId }: { sceneId: string }) {
   const [files, setFiles] = useState<Awaited<
     ReturnType<typeof listFiles>
   > | null>(null);
+  const [protectedCount, setProtectedCount] = useState(0);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   async function refresh() {
     // 刷新当前租户与地区的服务端文件清单，不读取其他地区的文件路径。
     setBusy(true);
     try {
-      setFiles((await listFiles(sceneId)).filter((f) => !f.referenced));
+      const inventory = await listFiles(sceneId);
+      setFiles(inventory.filter((f) => !f.referenced));
+      setProtectedCount(inventory.filter((f) => f.referencedInPublication).length);
       setError("");
     } catch (e) {
       setError((e as Error).message);
@@ -24,10 +27,11 @@ export function FileMaintenance({ sceneId }: { sceneId: string }) {
       <UiButton disabled={busy} onClick={() => void refresh()}>
         查看未关联文件
       </UiButton>
+      {protectedCount > 0 && <p className="muted">{protectedCount} 个文件被发布历史引用，已自动保护，不列入清理范围。</p>}
       {files && (
         <>
           <p className="muted">
-            上传未保存或移除资料后未清理的服务器文件。清理前请确认其他账号没有正在关联该文件；已保存的引用会阻止清理。
+            上传未保存或移除资料后未清理的服务器文件。清理前请确认其他账号没有正在关联该文件；工作草稿和所有发布历史中的引用都会阻止清理。
           </p>
           {files.length === 0 && <p>没有未关联文件</p>}
           {files.map((file) => (

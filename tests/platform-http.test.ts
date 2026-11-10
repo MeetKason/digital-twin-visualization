@@ -507,6 +507,12 @@ it("真实 HTTP：跨租户隔离、角色拒写、CSRF、并发修订、服务�
       (await call("/scenes/xian/business", a.cookie, "PUT", withFile)).status,
     ).toBe(200);
     expect((await call(downloadPath, a.cookie, "DELETE")).status).toBe(409);
+    // 历史快照即使尚未激活，也必须保留其附件供审批与恢复使用。
+    const fileSnapshot = await (await call("/scenes/xian/business", a.cookie)).json();
+    const fileSnapshotRevision = fileSnapshot.revision;
+    expect((await call("/scenes/xian/publications", a.cookie, "POST", {
+      revision: fileSnapshotRevision, message: "保留附件的历史版本",
+    })).status).toBe(201);
     const mismatched = await (
       await call("/scenes/xian/business", a.cookie)
     ).json();
@@ -546,8 +552,21 @@ it("真实 HTTP：跨租户隔离、角色拒写、CSRF、并发修订、服务�
     expect(
       (await call("/scenes/xian/business", a.cookie, "PUT", unlink)).status,
     ).toBe(200);
-    expect((await call(downloadPath, a.cookie, "DELETE")).status).toBe(200);
-    expect((await call(downloadPath, a.cookie)).status).toBe(404);
+    const protectedDelete = await call(downloadPath, a.cookie, "DELETE");
+    expect(protectedDelete.status).toBe(409);
+    expect(await protectedDelete.text()).toContain("发布历史引用");
+    expect(await (await call(downloadPath, a.cookie)).text()).toBe(pdf);
+    const protectedInventory = await (await call(filePath, a.cookie)).json();
+    expect(protectedInventory.find((item: { id: string }) => item.id === file.id))
+      .toMatchObject({ referenced: true, referencedInDraft: false, referencedInPublication: true });
+    const temporary = await (await upload(a.cookie, "未关联.pdf")).json();
+    expect((await call(filePath + "/" + temporary.id, a.cookie, "DELETE")).status).toBe(200);
+    const restoreFileState = await (await call("/scenes/xian/business", a.cookie)).json();
+    const restoreFile = await call("/scenes/xian/publications/rollback", a.cookie, "POST", {
+      targetRevision: fileSnapshotRevision, expectedRevision: restoreFileState.revision,
+    });
+    expect(restoreFile.status).toBe(201);
+    expect((await restoreFile.json()).data.assets[0].blobId).toBe(file.id);
     const rollbackState = await (await call("/scenes/xian/business", a.cookie)).json();
     expect((await call("/scenes/xian/publications/rollback", v.cookie, "POST", {
       targetRevision: 1, expectedRevision: rollbackState.revision,

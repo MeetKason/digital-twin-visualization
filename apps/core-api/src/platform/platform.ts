@@ -116,14 +116,25 @@ export class Platform {
       if (this.locks.get(key) === task) this.locks.delete(key);
     }
   }
+  /** 文件保护同时覆盖工作草稿和全部不可变发布快照，供清单与删除共用。 */
+  async fileReferenceStatus(user: Principal, scene: string) {
+    const [draft, history] = await Promise.all([
+      this.repo.readBusiness(user.tenantId, scene),
+      this.repo.publicationFileReferences(user.tenantId, scene),
+    ]);
+    const assets = draft ? parseBusinessData(draft.data, scene).assets : [];
+    return {
+      draft: new Set(assets.map((asset) => asset.blobId)),
+      publication: new Set(history),
+    };
+  }
   async removeFile(user: Principal, scene: string, id: string) {
     return this.locked(user, scene, async () => {
-      if (
-        (await this.business(user, scene)).data.assets.some(
-          (a) => a.blobId === id,
-        )
-      )
+      const references = await this.fileReferenceStatus(user, scene);
+      if (references.draft.has(id))
         throw new ConflictException("文件仍被业务资料引用，请先移除引用并保存");
+      if (references.publication.has(id))
+        throw new ConflictException("文件仍被发布历史引用，为保证在线版本和历史恢复可用，不能删除");
       await this.files.remove(user.tenantId, scene, id);
       await this.repo.logAudit({
         tenantId: user.tenantId,

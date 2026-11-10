@@ -705,3 +705,58 @@ test("系统管理显示租户操作审计并支持筛选和导出", async ({ pa
   for await (const chunk of stream) csv += chunk.toString();
   expect(csv).toContain("'=HYPERLINK");
 });
+
+test("专题与设备使用Ant表格并在窄屏保持表头和滚动区可见", async ({ page }) => {
+  await page.goto("/");
+  await page.getByRole("button", { name: "进入演示系统" }).click();
+  await page.locator(".side-navigation").getByRole("button", { name: "气象专题" }).click();
+  await page.getByRole("menuitem", { name: /02.*强对流/ }).click();
+  await expect(page.locator(".topic-map-heading")).toContainText("强对流");
+  await expect(page.locator(".weather-table .ant-table-tbody tr[data-row-key]")).toHaveCount(6);
+  await expect(page.getByRole("columnheader", { name: "有效时次" })).toBeVisible();
+  for (const viewport of [{ width: 1920, height: 1080 }, { width: 1366, height: 768 }]) {
+    await page.setViewportSize(viewport);
+    const panel = await page.locator(".topic-table").boundingBox();
+    const body = await page.locator(".weather-table .ant-table-body").boundingBox();
+    expect(panel).not.toBeNull();
+    expect(body).not.toBeNull();
+    expect(body!.y + body!.height).toBeLessThanOrEqual(panel!.y + panel!.height + 1);
+    await expect(page.getByRole("menuitem", { name: /04.*山洪地质灾害/ })).toBeVisible();
+    await page.screenshot({ path: `test-results/weather-layout-${viewport.width}.png` });
+  }
+  await page.locator(".side-navigation").getByRole("button", { name: "设备监控" }).click();
+  await expect(page.locator(".device-table .ant-table-tbody tr[data-row-key]").first()).toBeVisible();
+  await expect(page.getByRole("columnheader", { name: "最近心跳" })).toBeVisible();
+});
+
+test("登录密码图标支持查看隐藏并保留输入内容", async ({ page }) => {
+  await page.goto("/");
+  const account = page.getByRole("textbox", { name: "账号", exact: true });
+  const password = page.getByLabel("密码", { exact: true });
+  await account.fill("visibility-demo");
+  await password.fill("demo-visibility-only");
+  await expect(password).toHaveAttribute("type", "password");
+  await page.getByRole("button", { name: "显示", exact: true }).click();
+  await expect(password).toHaveAttribute("type", "text");
+  await expect(password).toHaveValue("demo-visibility-only");
+  await page.getByRole("button", { name: "隐藏", exact: true }).press("Enter");
+  await expect(password).toHaveAttribute("type", "password");
+  await expect(password).toHaveValue("demo-visibility-only");
+  await password.clear();
+  await page.screenshot({ path: "test-results/login-inputs.png" });
+});
+
+test("西安行政边界独立加载并在切换时次时复用", async ({ page }) => {
+  let boundaryRequests = 0;
+  page.on("request", (request) => { if (request.url().endsWith("/geojson/610100.geojson")) boundaryRequests += 1; });
+  await page.goto("/");
+  await page.getByRole("button", { name: "进入演示系统" }).click();
+  await page.getByRole("button", { name: "基础图层", exact: true }).click();
+  await expect(page.locator('[data-layer="boundary"]')).toHaveAttribute("data-status", "on");
+  await expect(page.getByText("西安市行政边界", { exact: true })).toBeVisible();
+  expect(boundaryRequests).toBe(1);
+  await page.getByRole("button", { name: "00:00", exact: true }).click();
+  await expect(page.locator(".time-context")).toContainText("00:00");
+  expect(boundaryRequests).toBe(1);
+  await page.screenshot({ path: "test-results/xian-administrative-boundary.png" });
+});

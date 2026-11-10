@@ -66,6 +66,7 @@ export interface Repository {
   ): Promise<BusinessPublication>;
   activePublication(tenant: string, scene: string): Promise<BusinessPublication | null>;
   publications(tenant: string, scene: string): Promise<BusinessPublication[]>;
+  publicationFileReferences(tenant: string, scene: string): Promise<string[]>;
 }
 interface DiskState {
   business: Record<string, StoredRevision>;
@@ -310,6 +311,15 @@ export class FileRepository implements Repository {
         active: item.revision === active?.revision,
         ...(item.revision === active?.revision ? { trafficPercent: active.trafficPercent } : {}),
       }));
+  }
+  /** 删除保护读取所有快照，不能复用最多返回100条的历史展示接口。 */
+  async publicationFileReferences(tenant: string, scene: string): Promise<string[]> {
+    await this.queue;
+    const state = await this.read();
+    return [...new Set((state.publications ?? [])
+      .filter((item) => item.tenantId === tenant && item.sceneId === scene)
+      .flatMap((item) => (item.snapshot.assets ?? []).map((asset) => asset.blobId))
+      .filter((id) => id.startsWith("srv_")))];
   }
   async activePublication(tenant: string, scene: string) {
     await this.queue;
@@ -650,6 +660,16 @@ export class PostgresRepository implements Repository {
       publishedAt: String(row.publishedAt),
       reviewedAt: row.reviewedAt ? String(row.reviewedAt) : undefined,
     }));
+  }
+  /** 在数据库内汇总完整历史的文件引用，按租户和地区隔离且不截断版本。 */
+  async publicationFileReferences(tenant: string, scene: string): Promise<string[]> {
+    const result = await this.pool.query<{ id: string }>(
+      `SELECT DISTINCT asset->>'blobId' AS id FROM scene_publication p
+       CROSS JOIN LATERAL jsonb_array_elements(COALESCE(p.snapshot->'assets','[]'::jsonb)) AS asset
+       WHERE p.tenant_id=$1 AND p.scene_id=$2 AND left(asset->>'blobId',4)='srv_'`,
+      [tenant, scene],
+    );
+    return result.rows.map((row) => row.id);
   }
   async activePublication(tenant: string, scene: string) {
     const result = await this.pool.query<BusinessPublication>(

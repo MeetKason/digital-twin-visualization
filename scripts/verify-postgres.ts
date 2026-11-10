@@ -138,7 +138,7 @@ try {
   assert.equal((await repo.readBusiness("alpha", "xian"))?.revision, 2);
   await repo.saveBusiness("alpha", "xian", 2, {
     stations: [{ id: "s1", name: "站点", lon: 108.9, lat: 34.2, elevationM: 400 }],
-    assets: [], bookmarks: [{ id: "b1", name: "视角", view: { lon: 108.9, lat: 34.2 } }],
+    assets: [{ id: "file1", name: "历史附件", kind: "document", blobId: "srv_history", fileName: "历史.pdf", size: 32 }], bookmarks: [{ id: "b1", name: "视角", view: { lon: 108.9, lat: 34.2 } }],
     plans: [{ id: "p1", name: "巡航", saved: true, points: [{ id: "p1a", name: "节点", lon: 108.9, lat: 34.2, height: 100 }] }],
   }, "alice");
   assert.equal((await pool.query("SELECT count(*)::int n FROM scene_station WHERE tenant_id='alpha'")).rows[0].n, 1);
@@ -146,6 +146,9 @@ try {
   assert.equal((await pool.query("SELECT count(*)::int n FROM scene_cruise_point WHERE tenant_id='alpha'")).rows[0].n, 1);
   const publication = await repo.publishBusiness("alpha", "xian", 3, "alice", "验证发布");
   assert.equal(publication.snapshot.stations[0].id, "s1");
+  assert.deepEqual(await repo.publicationFileReferences("alpha", "xian"), ["srv_history"]);
+  assert.deepEqual(await repo.publicationFileReferences("beta", "xian"), []);
+  assert.deepEqual(await repo.publicationFileReferences("alpha", "taiyuan"), []);
   assert.equal(publication.approvalStatus, "pending_approval");
   await assert.rejects(repo.activatePublication("alpha", "xian", 3, "alice"));
   await assert.rejects(repo.reviewPublication("alpha", "xian", 3, "alice", "approve", ""));

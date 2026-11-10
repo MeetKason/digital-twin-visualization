@@ -98,7 +98,7 @@ export async function persistUploadedFile(
 }
 export async function listFiles(
   sceneId: string,
-): Promise<{ id: string; name: string; size: number; referenced: boolean }[]> {
+): Promise<{ id: string; name: string; size: number; referenced: boolean; referencedInPublication?: boolean }[]> {
   return (
     await checked(
       await fetch(endpoint(sceneId), { credentials: "same-origin" }),

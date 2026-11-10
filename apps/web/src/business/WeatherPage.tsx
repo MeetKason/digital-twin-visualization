@@ -1,5 +1,5 @@
 import { UiButton, UiCard } from "../ui/controls";
-import { Table, type TableColumnsType } from "antd";
+import { Alert, Menu, Table, Tag, type TableColumnsType } from "antd";
 import { useEffect, useState } from "react";
 import { deriveMockWeatherWarning, type DataFrame, type MockWeatherTopic } from "@dtv/contracts";
 import type { MapFacade, LayerRuntime } from "@dtv/sdk";
@@ -23,12 +23,19 @@ export function WeatherPage({
 }) {
   const [topic, setTopic] = useState(0),
     [frame, setFrame] = useState<DataFrame | null>(null),
-    [error, setError] = useState("");
+    [error, setError] = useState(""),
+    [loading, setLoading] = useState(false);
   useEffect(() => {
     // 专题只读取当前场景和时次；请求取消可防止切换页面后旧结果覆盖新状态。
     const ctrl = new AbortController();
     setFrame(null);
     setError("");
+    // 无可用时次时展示缺数状态，避免发出空时次请求。
+    if (!time) {
+      setLoading(false);
+      return () => ctrl.abort();
+    }
+    setLoading(true);
     void api
       .data(
         topic === 2 ? "temperature" : "rainfall",
@@ -36,10 +43,11 @@ export function WeatherPage({
         time,
         ctrl.signal,
       )
-      .then(setFrame)
+      .then((next) => { if (!ctrl.signal.aborted) setFrame(next); })
       .catch((e) => {
         if (!ctrl.signal.aborted) setError(e.message);
-      });
+      })
+      .finally(() => { if (!ctrl.signal.aborted) setLoading(false); });
     return () => ctrl.abort();
   }, [topic, sceneId, time]);
   useEffect(() => {
@@ -75,21 +83,25 @@ export function WeatherPage({
     {
       title: "站点名称",
       key: "station",
+      width: 180,
       render: (_, row) => (
-        <UiButton onClick={() => map?.flyTo(row.station.lon, row.station.lat, 9000)}>
+        <UiButton variant="link" className="station-name-link" onClick={() => map?.flyTo(row.station.lon, row.station.lat, 9000)}>
           {row.station.name}
         </UiButton>
       ),
     },
-    { title: "站点类型", dataIndex: ["station", "type"], key: "type" },
+    { title: "站点类型", dataIndex: ["station", "type"], key: "type", width: 150 },
     {
       title: "气象要素",
       key: "element",
+      width: 120,
       render: () => (topic === 2 ? "气温" : "小时降水"),
     },
     {
       title: "当前值",
       key: "value",
+      width: 120,
+      align: "right",
       render: (_, row) => (
         <>
           {(topic === 2
@@ -102,14 +114,18 @@ export function WeatherPage({
     {
       title: "预警类型",
       key: "warning",
-      render: (_, row) =>
-        row.warning
-          ? `${row.warning.level} · ${row.warning.type} ${row.warning.value.toFixed(1)} ${row.warning.unit}`
-          : "无 Mock 提示",
+      width: 280,
+      render: (_, row) => row.warning ? (
+        <span className="weather-warning-cell">
+          <Tag color={row.warning.level.startsWith("红") ? "red" : row.warning.level.startsWith("橙") ? "orange" : "gold"}>{row.warning.level}</Tag>
+          <span>{row.warning.type} {row.warning.value.toFixed(1)} {row.warning.unit}</span>
+        </span>
+      ) : <Tag>{row.observation ? "无 Mock 提示" : "暂无观测"}</Tag>,
     },
     {
       title: "有效时次",
       key: "observedAt",
+      width: 200,
       render: (_, row) => beijingTime(row.observation?.observedAt),
     },
   ];
@@ -121,16 +137,15 @@ export function WeatherPage({
         </div>
         <div className="panel-body">
           <p className="muted">选择专题 · 示例数据</p>
-          {topics.map((t, i) => (
-            <UiButton
-              key={t}
-              aria-label={t}
-              className={`catalog-card ${topic === i ? "active" : ""}`}
-              onClick={() => setTopic(i)}
-            >
-              {String(i + 1).padStart(2, "0")} {t}
-            </UiButton>
-          ))}
+          <Menu
+            className="weather-topic-menu"
+            aria-label="气象专题选择"
+            selectedKeys={[String(topic)]}
+            onClick={({ key }) => setTopic(Number(key))}
+            items={topics.map((label, index) => ({
+              key: String(index), label: `${String(index + 1).padStart(2, "0")}  ${label}`,
+            }))}
+          />
           <p className="data-disclaimer">
             仅按页面展示的 Mock 阈值生成站点级提示，不生成正式风险范围或业务预警结论。
           </p>
@@ -159,11 +174,7 @@ export function WeatherPage({
               <strong>{value}</strong>
             </div>
           ))}
-          {error && (
-            <p role="alert" className="error-text">
-              {error}
-            </p>
-          )}
+
         </div>
       </UiCard>
       <section className="topic-table panel">
@@ -171,14 +182,18 @@ export function WeatherPage({
           <strong>重点站点与预警列表</strong>
           <span>Mock 阈值结果 · 非正式预警</span>
         </div>
+        {error && <Alert className="weather-data-alert" type="warning" showIcon message={`专题观测读取失败：${error}`} />}
         <Table
           className="weather-table"
+          loading={loading}
+          tableLayout="fixed"
+          locale={{ emptyText: time ? "当前场景暂无站点" : "暂无可用时次" }}
           size="small"
           rowKey={(row) => row.station.id}
-          dataSource={rows}
+          dataSource={time ? rows : []}
           columns={tableColumns}
-          pagination={{ pageSize: 10, showSizeChanger: false, size: "small" }}
-          scroll={{ x: "max-content" }}
+          pagination={{ pageSize: 10, showSizeChanger: false, hideOnSinglePage: true, size: "small" }}
+          scroll={{ x: 1050, y: "calc(clamp(240px, 34vh, 340px) - 130px)" }}
         />
       </section>
     </div>

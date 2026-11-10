@@ -1,6 +1,6 @@
 import { expect, it } from "vitest";
 import { createHash } from "node:crypto";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { FileRepository } from "../apps/core-api/src/platform/repository";
@@ -114,6 +114,33 @@ it("restores a published snapshot as a new draft revision without changing histo
     await repo.saveBusiness("beta", "xian", 0, original, "admin");
     await expect(repo.rollbackBusiness("beta", "xian", 1, 1, "admin"))
       .rejects.toThrow("发布版本不存在");
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+
+it("文件保护扫描全部历史快照，不受发布列表100条上限影响且隔离租户地区", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "dtv-history-files-"));
+  try {
+    const publications = Array.from({ length: 102 }, (_, index) => ({
+      tenantId: "alpha", sceneId: "xian", revision: index + 1,
+      approvalStatus: index === 0 ? "rejected" : "approved",
+      publishedAt: new Date(index * 1000).toISOString(),
+      snapshot: { assets: [{ blobId: index === 0 ? "srv_oldest" : "srv_shared" }] },
+    }));
+    await writeFile(join(dir, "platform.json"), JSON.stringify({
+      business: {}, sessions: {}, audit: [], publications: [
+        ...publications,
+        { tenantId: "beta", sceneId: "xian", snapshot: { assets: [{ blobId: "srv_foreign" }] } },
+        { tenantId: "alpha", sceneId: "taiyuan", snapshot: { assets: [{ blobId: "srv_other_scene" }] } },
+      ],
+    }));
+    const repo = new FileRepository(dir);
+    expect(await repo.publicationFileReferences("alpha", "xian"))
+      .toEqual(expect.arrayContaining(["srv_oldest", "srv_shared"]));
+    expect(await repo.publicationFileReferences("alpha", "xian")).toHaveLength(2);
+    expect(await repo.publicationFileReferences("missing", "xian")).toEqual([]);
   } finally {
     await rm(dir, { recursive: true, force: true });
   }

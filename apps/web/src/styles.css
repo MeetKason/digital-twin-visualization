@@ -156,28 +156,39 @@ button.primary {
   color: #557083;
   margin: -12px 0 4px;
 }
-.login-field {
-  height: 40px;
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  border: 1px solid #0318223d;
-  padding: 5px 12px;
-  border-radius: 2px;
-  font-size: 13px;
-  color: #334c60;
-}
-.login-field .icon {
-  width: 24px;
-  height: 24px;
-}
-.login-field input {
+/* 登录框由Ant统一管理前缀、边框与密码可见性，避免双层边框。 */
+.login-field.ant-input-affix-wrapper {
   width: 100%;
+  height: 44px;
+  gap: 10px;
+  padding: 8px 12px;
+  border: 1px solid #9caebc;
+  border-radius: 6px;
+  background: #ffffffc9;
+  color: #334c60;
+  transition: border-color .2s, box-shadow .2s;
+}
+.login-field.ant-input-affix-wrapper:hover { border-color: var(--primary); }
+.login-field.ant-input-affix-wrapper:focus-within {
+  border-color: var(--primary);
+  box-shadow: 0 0 0 3px #1263c420;
+}
+.login-field .ant-input-prefix { margin-inline-end: 2px; flex-shrink: 0; }
+.login-field .svgfont { width: 22px; height: 22px; }
+.login-field.ant-input-affix-wrapper input.ant-input {
+  min-width: 0;
+  padding: 0;
   border: 0;
+  border-radius: 0;
   background: transparent;
   color: #243244;
-  outline: 0;
+  font-size: 14px;
+  box-shadow: none;
 }
+.login-field input.ant-input:focus-visible { outline: none; box-shadow: none; }
+.login-field .ant-input-password-icon { display: inline-flex; align-items: center; justify-content: center; min-width: 24px; min-height: 24px; color: #526d81; }
+.login-field .ant-input-password-icon:hover { color: var(--primary); }
+.login-field .ant-input-password-icon:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; border-radius: 3px; }
 .login-submit {
   height: 40px;
   border-radius: 2px;
@@ -1502,28 +1513,6 @@ h3 {
 .table-scroll {
   overflow: auto;
 }
-table {
-  border-collapse: collapse;
-  width: 100%;
-  font-size: 12px;
-}
-th,
-td {
-  padding: 12px 10px;
-  border-bottom: 1px solid #dbe3ec;
-  text-align: left;
-}
-th {
-  background: #dbe3ec;
-  font-weight: 500;
-}
-tbody tr:nth-child(even) {
-  background: #edf1f6;
-}
-td button {
-  font-size: 11px;
-  padding: 4px 6px;
-}
 .weather-page {
   position: absolute;
   inset: 0;
@@ -1994,6 +1983,36 @@ td button {
 .file-button.ant-upload-wrapper { padding: 0; border: 0; background: transparent; overflow: visible; }
 .file-button .ant-upload { width: 100%; }
 .ui-upload-trigger.ant-btn { width: 100%; min-height: 36px; height: auto; padding: 7px 10px; white-space: normal; }
-/* 来源署名直接显示，去掉英文折叠入口。 */
-.map-canvas .cesium-credit-expand-link { display: none !important; }
+/* 地图来源署名按界面要求隐藏，仅作用于地图画布内的版权容器。 */
+.map-canvas .cesium-widget-credits { display: none !important; }
 .map-notice { max-width: min(440px, calc(100% - 28px)); line-height: 1.5; overflow-wrap: anywhere; pointer-events: none; }
+
+/* 专题表格采用Ant固定表头和滚动区域，面板跟随窗口高度，避免底部行被裁切。 */
+.weather-page { --topic-table-height: clamp(240px, 34vh, 340px); }
+.topic-table { height: var(--topic-table-height); display: flex; flex-direction: column; overflow: hidden; min-width: 0; }
+.topic-table > .panel-heading { flex-shrink: 0; gap: 12px; flex-wrap: wrap; }
+.topic-table > .weather-table { flex: 1; min-height: 0; overflow: auto; }
+.weather-table .ant-table { font-size: 12px; background: #fff; }
+.weather-table .ant-table-thead > tr > th { font-size: 12px; padding: 10px 12px; white-space: nowrap; }
+.weather-table .ant-table-tbody > tr > td { padding: 8px 12px; line-height: 1.6; vertical-align: middle; }
+.weather-table .ant-table-tbody > tr:nth-child(even) > td { background: #f8fafc; }
+.weather-table .ant-table-tbody > tr:hover > td { background: #eaf3ff; }
+.weather-table .station-name-link { height: auto; padding: 0; text-align: left; white-space: normal; }
+.weather-warning-cell { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; }
+.weather-warning-cell .ant-tag { margin: 0; }
+.weather-data-alert { flex-shrink: 0; margin: 8px 12px; }
+.topic-catalog, .topic-metrics { bottom: calc(var(--topic-table-height) + 28px); overflow: auto; }
+.topic-catalog .panel-body { display: flex; flex-direction: column; gap: 12px; }
+.topic-catalog .muted, .topic-catalog .data-disclaimer { margin: 0; }
+.weather-topic-menu.ant-menu { border-inline-end: 0; background: transparent; }
+.weather-topic-menu .ant-menu-item { width: 100%; height: auto; min-height: 46px; line-height: 1.5; display: flex; align-items: center; margin: 0 0 8px; padding: 12px !important; border: 1px solid #dbe3ec; border-radius: 6px; }
+.weather-topic-menu .ant-menu-title-content { white-space: normal; }
+.topic-metrics .panel-body { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+.topic-metrics .metric-block { min-width: 0; margin: 0; padding: 10px; border-radius: 6px; background: #f5f8fc; }
+.topic-metrics .metric-block strong { overflow-wrap: anywhere; }
+.workbench-alerts { position: absolute; top: 56px; left: 50%; transform: translateX(-50%); width: min(620px, calc(100% - 48px)); display: grid; gap: 8px; z-index: 12; max-height: 180px; overflow: auto; }
+.workbench-alerts:empty { display: none; }
+.device-table { margin-top: 16px; }
+.settings-page .ant-table table { margin-top: 0; }
+.device-name-cell { display: grid; gap: 4px; overflow-wrap: anywhere; }
+.device-name-cell small { color: #6e7f93; }

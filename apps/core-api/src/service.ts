@@ -23,8 +23,11 @@ export class DemoService {
     return scene;
   }
   layers(sceneId: string) {
-    this.scene(sceneId);
-    return LAYERS;
+    const scene = this.scene(sceneId);
+    return LAYERS.map((layer) => layer.id === "boundary" && scene.boundaryUrl
+      ? { ...layer, name: `${scene.name}行政边界`, tag: "区县", reason: "用户提供的行政边界数据" }
+      : layer);
+
   }
   layer(id: string) {
     const layer = LAYERS.find((l) => l.id === id);

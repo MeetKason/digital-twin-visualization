@@ -40,6 +40,7 @@ import type { SceneConfig, Station, LayerDescriptor } from "@dtv/contracts";
 import { LayerRuntime, type LayerHandle, type MapFacade } from "@dtv/sdk";
 import { api, runtimeConfig } from "./api";
 import { distanceMeters, areaMeters, type Coordinate } from "@dtv/contracts";
+import { parseAdministrativeBoundary } from "./administrativeBoundary";
 import { createTiandituProvider } from "./tianditu";
 import { createTiandituTerrainProvider } from "./tiandituTerrain";
 import { createStationMarker } from "./stationIcons";
@@ -69,7 +70,6 @@ export default function MapView({
     currentTime = useRef(time),
     runtimeRef = useRef<LayerRuntime | null>(null),
     viewerRef = useRef<Viewer | null>(null);
-  const [notice, setNotice] = useState("正在初始化本地地图…");
   const [error, setError] = useState("");
   currentTime.current = time;
   // 地图引擎只在地图组件挂载时加载；场景切换和卸载必须销毁 Viewer 与图层资源。
@@ -155,7 +155,6 @@ export default function MapView({
                   if (disposed || v.isDestroyed()) return;
                   v.imageryLayers.addImageryProvider(fallbackProvider, 0);
                   v.imageryLayers.remove(tiandituLayer, true);
-                  setNotice("天地图影像请求失败 · 当前显示本地低精度底图");
                   setError(
                     "天地图影像瓦片访问失败，请检查浏览器端 Key、来源域名授权和网络连接；已切换本地底图",
                   );
@@ -166,7 +165,6 @@ export default function MapView({
                   }
                 });
             });
-            setNotice("天地图底图 · 气象叠加为 Mock 示例");
           } else {
             const provider =
               b.type === "wmts"
@@ -182,7 +180,6 @@ export default function MapView({
             provider.errorEvent.addEventListener(() =>
               setError("内网底图加载失败，请检查服务与权限"),
             );
-            setNotice("内网底图 · 气象叠加为 Mock 示例");
           }
         } else {
           const provider = await TileMapServiceImageryProvider.fromUrl(
@@ -190,26 +187,19 @@ export default function MapView({
           );
           if (disposed) return;
           v.imageryLayers.addImageryProvider(provider, 0);
-          setNotice("未配置内网天地图 · 本地低精度底图 / 示例数据");
         }
-        const baseMapLabel = config.basemap?.type === "tianditu" && config.tiandituKey
-          ? "天地图卫星影像"
-          : config.basemap
-            ? "内网底图"
-            : "本地低精度底图";
         const configuredTerrain = Boolean(
           (config.basemap?.type === "tianditu" && config.tiandituKey) ||
             config.terrainUrl ||
             config.cesiumIonAccessToken,
         );
-        const setEllipsoidFallback = (reason: string) => {
+        const setEllipsoidFallback = () => {
           if (disposed || v.isDestroyed()) return;
           v.terrainProvider = new EllipsoidTerrainProvider();
           v.scene.globe.depthTestAgainstTerrain = false;
-          setNotice(`${baseMapLabel} · ${reason}，当前显示平滑椭球`);
         };
         if (!configuredTerrain) {
-          setEllipsoidFallback("未配置真实地形");
+          setEllipsoidFallback();
         } else {
           // 地形网络请求在后台执行，不阻塞图层运行时、测量工具和 onReady 初始化。
           void (async () => {
@@ -259,18 +249,17 @@ export default function MapView({
                   }
                   if (terrainWarningShown) return;
                   terrainWarningShown = true;
-                  setNotice(`${baseMapLabel} · ${providerName}真实地形已启用，部分瓦片暂不可用`);
-                  setError(`${providerName}个别地形瓦片加载失败，其余地形继续显示；请检查网络或服务限流`);
+                  // 局部缺瓦由父级地形覆盖，仅记录诊断信息，不弹出干扰地图浏览的提示。
+                  console.warn(`${providerName}局部地形瓦片暂不可用，保留其余地形`);
                 },
               );
               v.terrainProvider = terrain;
               v.scene.globe.depthTestAgainstTerrain = true;
-              setNotice(`${baseMapLabel} · ${providerName}地形 · 1.2×`);
             } catch {
               if (terrainLoadTimer !== undefined) window.clearTimeout(terrainLoadTimer);
               terrainLoadTimer = undefined;
               if (disposed) return;
-              setEllipsoidFallback(`${providerName}真实地形未加载`);
+              setEllipsoidFallback();
               setError(`${providerName}真实地形加载失败，请检查令牌、授权范围和网络连接`);
             }
           })();
@@ -283,7 +272,7 @@ export default function MapView({
           if (!descriptor) throw new Error("图层不存在");
           if (!descriptor.available)
             throw new Error(descriptor.reason ?? "未接入数据");
-          const frame = await api.data(
+          const frame = id === "boundary" ? null : await api.data(
             id,
             scene.id,
             currentTime.current,
@@ -302,8 +291,25 @@ export default function MapView({
                       : id === "simulation" ? ["#d8e6f6", "#a5c4e6", "#7c9ed0", "#675da8", "#413779"]
                         : id === "forecast" ? ["#4467a8", "#64a5ca", "#e1d981", "#e99a56", "#bd4c55"]
                           : ["#e4e7a0", "#d6d677", "#e4c569", "#e6a45c", "#d98359"];
-          const values = frame.observations;
+          const values = frame?.observations ?? [];
           if (id === "boundary") {
+            if (scene.boundaryUrl) {
+              const response = await fetch(scene.boundaryUrl, { signal });
+              if (!response.ok) throw new Error("行政边界数据加载失败");
+              const boundaries = parseAdministrativeBoundary(await response.json());
+              if (signal.aborted || disposed) throw new Error("加载已取消");
+              for (const boundary of boundaries) {
+                source.entities.add({
+                  name: boundary.name,
+                  polyline: {
+                    positions: Cartesian3.fromDegreesArray(boundary.coordinates),
+                    clampToGround: true,
+                    width: 2,
+                    material: Color.fromCssColorString("#20b5da"),
+                  },
+                });
+              }
+            } else {
             source.entities.add({
               polyline: {
                 clampToGround: true,
@@ -335,6 +341,7 @@ export default function MapView({
                 pixelOffset: new Cartesian2(0, -12),
               },
             });
+            }
           } else if (descriptor.rendererType === "station") {
             const visibleStations = latestStations.current.filter((s) =>
               id === "stations"
@@ -371,7 +378,7 @@ export default function MapView({
                 });
               }),
             );
-          } else if (frame.gridCells?.length) {
+          } else if (frame?.gridCells?.length) {
             for (const cell of frame.gridCells) {
               const range = id === "radar" ? 70 : id === "wind" ? 25 : id === "forecast" ? 45 : id === "warning" ? 4 : 100;
               const bucket = Math.min(palette.length - 1, Math.floor((cell.value / range) * palette.length));
@@ -394,7 +401,7 @@ export default function MapView({
                 const x = lon - 0.55 + col * 0.117,
                   y = lat - 0.42 + row * 0.1125;
                 const idx =
-                  (row + col + new Date(frame.observedAt).getUTCHours() + 8) %
+                  (row + col + new Date(frame?.observedAt ?? currentTime.current).getUTCHours() + 8) %
                   5;
                 source.entities.add({
                   rectangle: {
@@ -412,7 +419,12 @@ export default function MapView({
                 });
               }
           }
+          if (signal.aborted || disposed) throw new Error("加载已取消");
           await v.dataSources.add(source);
+          if (signal.aborted || disposed) {
+            if (!v.isDestroyed()) v.dataSources.remove(source, true);
+            throw new Error("加载已取消");
+          }
           const baseColors = new Map<Entity, Color>();
           source.entities.values.forEach((e) => {
             const m = e.rectangle?.material;
@@ -853,16 +865,12 @@ export default function MapView({
     const runtime = runtimeRef.current;
     if (!runtime) return;
     for (const l of layers)
-      if (["on", "loading", "error"].includes(runtime.snapshot(l.id).status))
+      if (l.id !== "boundary" && ["on", "loading", "error"].includes(runtime.snapshot(l.id).status))
         void runtime.toggle(l.id, true);
   }, [time, stations, layers, dataRevision]);
   return (
     <>
       <div ref={container} className="map-canvas" aria-label="三维交互地图" />
-      <div className="map-notice">
-        <span className="status-dot" />
-        {notice}
-      </div>
       {error && (
         <Alert
           className="map-error"
@@ -878,7 +886,7 @@ export default function MapView({
       )}
       <div className="map-coordinates">
         EPSG:4326 · {scene.center[0].toFixed(4)}°E，{scene.center[1].toFixed(4)}
-        °N · 示例范围
+        °N · {scene.boundaryUrl ? `${scene.name}行政区划` : "示例范围"}
       </div>
     </>
   );

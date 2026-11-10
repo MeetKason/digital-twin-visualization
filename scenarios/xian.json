@@ -3,9 +3,16 @@
   "name": "西安市",
   "shortName": "西安",
   "regionCode": "610100",
-  "center": [108.94, 34.34],
+  "center": [
+    108.94,
+    34.34
+  ],
   "height": 145000,
-  "modules": ["station", "weather"],
+  "modules": [
+    "station",
+    "weather"
+  ],
   "revision": "demo-1",
-  "source": "mock"
+  "source": "mock",
+  "boundaryUrl": "/geojson/610100.geojson"
 }
