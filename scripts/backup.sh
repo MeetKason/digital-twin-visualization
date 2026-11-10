@@ -15,7 +15,7 @@ resume_services() {
   if [[ ${#resume[@]} -gt 0 ]]; then docker compose start "${resume[@]}" >&2; fi
 }
 trap resume_services EXIT
-# Freeze all writers so database references and file bytes form the same snapshot.
+# 暂停所有写入服务，确保数据库中的资源引用与文件字节来自同一时点。
 if [[ ${#resume[@]} -gt 0 ]]; then docker compose stop "${resume[@]}" >&2; fi
 docker compose exec -T postgres pg_dump -U dtv -d dtv -Fc > "$backup_path/database.dump"
 docker compose run --rm --no-deps -T --entrypoint tar core-api -C /app/.data/files -czf - . > "$backup_path/files.tar.gz"

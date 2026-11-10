@@ -59,6 +59,7 @@ export function ModelManager({
   );
   const [previewAsset, setPreviewAsset] = useState<Asset | null>(null);
   async function upload() {
+    // 模型先经服务端格式检查进入文件仓库，业务集合再保存该文件引用。
     if (!file || !name.trim()) return;
     if (file.size > 100 * 1024 * 1024) {
       setError("模型文件不得超过100MB");

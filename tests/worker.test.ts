@@ -84,3 +84,28 @@ it("Worker 无效观测进入重试且水位不推进", async () => {
     await rm(dir, { recursive: true, force: true });
   }
 });
+
+it("雷达和卫星 Mock 产品分别调度、入库并保留产品要素", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "dtv-worker-products-"));
+  try {
+    const store = new FileIngestionStore(dir);
+    const time = "2026-11-07T00:00:00Z";
+    const productIds = ["radar-grid", "satellite-cloud", "wind-field", "humidity-field", "grid-analysis", "forecast-hourly", "warning-range", "environment-simulation"];
+    for (const productId of productIds) {
+      await store.enqueue("alpha", "xian", {
+        source: "mock", productId, startTime: time, endTime: time,
+      }, "operator");
+      expect(await new QueueWorker(store).tick()).toBe(true);
+    }
+    const radar = await store.observations("alpha", "xian", new Date(time).toISOString(), "radar-grid");
+    const satellite = await store.observations("alpha", "xian", new Date(time).toISOString(), "satellite-cloud");
+    expect(radar).toHaveLength(80);
+    expect(satellite).toHaveLength(80);
+    expect(radar.every((row) => typeof row.elements.radarDbz === "number")).toBe(true);
+    expect(satellite.every((row) => typeof row.elements.cloudPercent === "number")).toBe(true);
+    for (const productId of productIds)
+      expect(await store.times("alpha", "xian", productId)).toEqual([new Date(time).toISOString()]);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});

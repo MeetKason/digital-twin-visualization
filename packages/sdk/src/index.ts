@@ -1,4 +1,11 @@
 import type { LayerDescriptor } from "@dtv/contracts";
+export {
+  parsePluginCatalog,
+  parsePluginManifest,
+  verifyPluginIntegrity,
+  verifyPluginSignature,
+  type PluginManifest,
+} from "./pluginManifest";
 export interface LayerHandle {
   setOpacity(value: number): void;
   setTime(time: string): void | Promise<void>;

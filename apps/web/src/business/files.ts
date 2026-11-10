@@ -45,6 +45,7 @@ async function checked(response: Response) {
   return response;
 }
 export async function storeFile(sceneId: string, file: File): Promise<string> {
+  // 文件直接流式上传到服务端私有仓库，浏览器只保存服务端返回的资源 ID。
   if (file.size > 100 * 1024 * 1024) throw new Error("文件不得超过100MB");
   const response = await checked(
     await fetch(endpoint(sceneId), {
@@ -79,6 +80,7 @@ export async function deleteFile(sceneId: string, id: string) {
   );
 }
 export async function migrateFile(sceneId: string, id: string, name: string) {
+  // 将旧 IndexedDB 文件显式迁移；成功后才允许业务资料切换到服务端 ID。
   return storeFile(sceneId, new File([await readLegacyFile(id)], name));
 }
 

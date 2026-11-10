@@ -102,6 +102,7 @@ it("连续失败进入失败队列，人工重试续传，补旧资料不回退�
     expect((await store.status("a", "xian")).watermark).toBeNull();
     await expect(store.retry("b", "xian", job.id)).rejects.toThrow("不存在");
     await store.retry("a", "xian", job.id);
+    expect((await store.status("a", "xian")).jobs[0].status).toBe("queued");
     const lease = await store.claim("w", 100000);
     const rows = await connector.fetch("xian", lease!.job.cursor);
     const invalid = structuredClone(rows);
@@ -236,6 +237,49 @@ it("定时计划使用事务时钟，人工重试也不能绕过排队上限", a
       );
     }
     await expect(store.retry("a", "xian", failed.id)).rejects.toThrow("20");
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+it("产品任务独立去重和保存观测，且依赖产品先成功后才可执行", async () => {
+  const { FileIngestionStore } = await import("../packages/ingestion/src/file");
+  const dir = await mkdtemp(join(tmpdir(), "dtv-ingest-products-"));
+  try {
+    const store = new FileIngestionStore(dir, undefined, [
+      { id: "surface-hourly", label: "地面小时", available: true, dependencies: [] },
+      { id: "surface-quality", label: "地面质量控制", available: true, dependencies: ["surface-hourly"] },
+    ]);
+    const time = "2026-11-07T00:00:00Z";
+    const base = { source: "mock" as const, startTime: time, endTime: time };
+    const upstream = await store.enqueue("tenant", "xian", base, "user");
+    const derived = await store.enqueue("tenant", "xian", { ...base, productId: "surface-quality" }, "user");
+    expect((await store.enqueue("tenant", "xian", { ...base, productId: "surface-quality" }, "user")).id).toBe(derived.id);
+    expect(upstream.productId).toBe("surface-hourly");
+    expect(derived.productId).toBe("surface-quality");
+
+    const upstreamLease = await store.claim("worker", 1000);
+    expect(upstreamLease?.job.productId).toBe("surface-hourly");
+    expect(await store.claim("worker-2", 1000)).toBeNull();
+
+    const { MockSceneConnector } = await import("../packages/ingestion/src/worker");
+    const rows = await new MockSceneConnector().fetch("xian", upstreamLease!.job.cursor);
+    expect(await store.complete(upstreamLease!, rows, 1001)).toBe(true);
+    const derivedLease = await store.claim("worker-2", 1002);
+    expect(derivedLease?.job.productId).toBe("surface-quality");
+    expect(await store.complete(derivedLease!, rows, 1003)).toBe(true);
+    expect(await store.times("tenant", "xian", "surface-hourly")).toEqual(["2026-11-07T00:00:00.000Z"]);
+    expect(await store.times("tenant", "xian", "surface-quality")).toEqual(["2026-11-07T00:00:00.000Z"]);
+    expect(await store.observations("tenant", "xian", "2026-11-07T00:00:00.000Z", "surface-hourly")).toHaveLength(rows.length);
+    expect(await store.observations("tenant", "xian", "2026-11-07T00:00:00.000Z", "surface-quality")).toHaveLength(rows.length);
+    await store.configure("tenant", "xian", { enabled: true, productId: "surface-quality" });
+    const scheduledUpstream = await store.claim("scheduler", Date.now());
+    expect(scheduledUpstream?.job.productId).toBe("surface-hourly");
+    const scheduledRows = await new MockSceneConnector().fetch("xian", scheduledUpstream!.job.cursor);
+    expect(await store.complete(scheduledUpstream!, scheduledRows, Date.now() + 1)).toBe(true);
+    const scheduledDependent = await store.claim("scheduler-2", Date.now() + 2);
+    expect(scheduledDependent?.job.productId).toBe("surface-quality");
+    await expect(store.enqueue("tenant", "xian", { ...base, productId: "unknown-product" }, "user")).rejects.toThrow("产品");
   } finally {
     await rm(dir, { recursive: true, force: true });
   }

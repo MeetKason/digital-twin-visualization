@@ -59,6 +59,7 @@ export default function MapView({
   const [notice, setNotice] = useState("正在初始化本地地图…");
   const [error, setError] = useState("");
   currentTime.current = time;
+  // 地图引擎只在地图组件挂载时加载；场景切换和卸载必须销毁 Viewer 与图层资源。
   useEffect(() => {
     let disposed = false;
     let viewer: Viewer | undefined;
@@ -73,6 +74,7 @@ export default function MapView({
       null;
     let stopCruise: (() => void) | null = null;
     let drawingSource: CustomDataSource | undefined;
+    // Cesium 与本地运行配置异步初始化；未完成前卸载时不再创建浏览器资源。
     const initialize = async () => {
       try {
         const config = await runtimeConfig();
@@ -154,10 +156,16 @@ export default function MapView({
           if (signal.aborted || disposed) throw new Error("加载已取消");
           const source = new CustomDataSource(id);
           const [lon, lat] = scene.center;
-          const palette =
-            id === "rainfall"
-              ? ["#cee9ff", "#72c3eb", "#2e91d1", "#1864b0", "#25449b"]
-              : ["#e4e7a0", "#d6d677", "#e4c569", "#e6a45c", "#d98359"];
+          const palette = id === "radar"
+            ? ["#2775cb", "#27a6b8", "#51bb54", "#e5d63a", "#ee6338", "#b82844"]
+            : id === "satellite" ? ["#60758c", "#9caec0", "#d3dce5", "#f4f6f8", "#ffffff"]
+              : id === "rainfall" ? ["#cee9ff", "#72c3eb", "#2e91d1", "#1864b0", "#25449b"]
+                : id === "wind" ? ["#f4e7d4", "#f0bf84", "#e98952", "#c54640", "#792b56"]
+                  : id === "humidity" ? ["#edf6fb", "#b9dfef", "#78bde0", "#398fc7", "#145b9d"]
+                    : id === "warning" ? ["#f5f4df", "#f4d54c", "#f29b38", "#e65335", "#a9203a"]
+                      : id === "simulation" ? ["#d8e6f6", "#a5c4e6", "#7c9ed0", "#675da8", "#413779"]
+                        : id === "forecast" ? ["#4467a8", "#64a5ca", "#e1d981", "#e99a56", "#bd4c55"]
+                          : ["#e4e7a0", "#d6d677", "#e4c569", "#e6a45c", "#d98359"];
           const values = frame.observations;
           if (id === "boundary") {
             source.entities.add({
@@ -220,6 +228,23 @@ export default function MapView({
                   },
                 }),
               );
+          } else if (frame.gridCells?.length) {
+            for (const cell of frame.gridCells) {
+              const range = id === "radar" ? 70 : id === "wind" ? 25 : id === "forecast" ? 45 : id === "warning" ? 4 : 100;
+              const bucket = Math.min(palette.length - 1, Math.floor((cell.value / range) * palette.length));
+              const alpha = id === "satellite"
+                ? 0.15 + (cell.value / 100) * 0.52
+                : id === "warning" ? (cell.value === 0 ? 0.03 : 0.34 + (cell.value / range) * 0.5)
+                  : 0.4 + Math.min(1, cell.value / range) * 0.42;
+              source.entities.add({
+                id: cell.id,
+                rectangle: {
+                  coordinates: Rectangle.fromDegrees(...cell.bounds),
+                  material: Color.fromCssColorString(palette[bucket]).withAlpha(alpha),
+                  height: 20,
+                },
+              });
+            }
           } else {
             for (let row = 0; row < 8; row++)
               for (let col = 0; col < 10; col++) {
@@ -659,6 +684,7 @@ export default function MapView({
     };
     void initialize();
     return () => {
+      // 先标记异步流程失效，再停止漫游、卸载图层和销毁 Cesium 输入及 Viewer。
       disposed = true;
       stopCruise?.();
       runtime?.dispose();

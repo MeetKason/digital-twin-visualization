@@ -1,1 +1,9 @@
-{"id":"example.station-popup","version":"1.0.0","coreApi":1,"entry":"/extensions/example/index.js"}
+{
+  "id": "example.station-popup",
+  "version": "1.0.0",
+  "coreApi": 1,
+  "entry": "/extensions/example/index.js",
+  "integrity": "sha256-hTDU4xCS+7BlhtPyOjLq4fZCXrQsmwTtK7WkwGqeyMM=",
+  "keyId": "build-root",
+  "signature": "xtHa5TiKP9NgclXFAjNat6PaTPs49NeUxV4NLo2BsGwj9ekF761B5MIG5TSF0G7Yfu86prd0/hja9UZqea8VDg=="
+}

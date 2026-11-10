@@ -7,6 +7,7 @@ export function FileMaintenance({ sceneId }: { sceneId: string }) {
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   async function refresh() {
+    // 刷新当前租户与地区的服务端文件清单，不读取其他地区的文件路径。
     setBusy(true);
     try {
       setFiles((await listFiles(sceneId)).filter((f) => !f.referenced));

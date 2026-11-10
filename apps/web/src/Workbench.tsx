@@ -43,6 +43,7 @@ const navigation = [
 ];
 export default function Workbench({ onExit }: { onExit: () => void }) {
   const [profile, setProfile] = useState<SessionUser | null>(null);
+  // 恢复服务端会话资料，用于显示真实账号或隔离演示会话标识。
   useEffect(() => {
     void authApi
       .session()
@@ -53,6 +54,7 @@ export default function Workbench({ onExit }: { onExit: () => void }) {
     [sceneId, setSceneId] = useState("xian"),
     [error, setError] = useState(""),
     [now, setNow] = useState(new Date());
+  // 场景列表由 API 按当前会话授权过滤；组件卸载时中止尚未完成的请求。
   useEffect(() => {
     const ctrl = new AbortController();
     void api
@@ -475,7 +477,7 @@ function WorkArea({ scene }: { scene: SceneConfig }) {
             time={time}
           />
         )}
-        {activeMenu === "device" && <DevicePage />}
+        {activeMenu === "device" && <DevicePage sceneId={scene.id} />}
         {activeMenu === "settings" && (
           <SettingsPage business={business} onDataChanged={onDataChanged} />
         )}
@@ -605,16 +607,44 @@ function StationDetails({
         <p className="data-disclaimer">
           模型、视频、附件和正式档案将在站点管理阶段接入。
         </p>
-        <button
-          disabled={extension.busy}
-          onClick={() => void extension.toggle()}
-        >
-          {extension.busy
-            ? "正在处理…"
-            : extension.installed
-              ? "卸载示例插件"
-              : "加载示例插件"}
-        </button>
+        {extension.discovering ? (
+          <p className="muted">正在发现同源插件…</p>
+        ) : extension.plugins.length > 0 ? (
+          <>
+            <label>
+              可安装插件
+              <select
+                aria-label="可安装插件"
+                value={extension.selectedId}
+                onChange={(event) =>
+                  extension.setSelectedId(event.target.value)
+                }
+              >
+                {extension.plugins.map((plugin) => (
+                  <option key={plugin.id} value={plugin.id}>
+                    {plugin.id} · v{plugin.version}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <button
+              disabled={extension.busy || !extension.selected}
+              onClick={() => void extension.toggle()}
+            >
+              {extension.busy
+                ? "正在处理…"
+                : extension.installed
+                  ? extension.selected?.id === "example.station-popup"
+                    ? "卸载示例插件"
+                    : `卸载 ${extension.selected?.id}`
+                  : extension.selected?.id === "example.station-popup"
+                    ? "加载示例插件"
+                    : `加载 ${extension.selected?.id}`}
+            </button>
+          </>
+        ) : (
+          <p className="muted">未发现可用插件。</p>
+        )}
         {extension.popup && (
           <div className="extension-slot">
             <strong>{extension.popup.label}</strong>

@@ -1,0 +1,93 @@
+{
+  "generatedAt": "2026-11-09T02:06:36.489Z",
+  "mode": "mock-isolated-development",
+  "sampleCount": 5,
+  "environment": {
+    "platform": "darwin",
+    "osRelease": "27.2.0",
+    "architecture": "arm64",
+    "node": "v22.20.0",
+    "browser": "141.0.7390.37"
+  },
+  "metricDefinitions": {
+    "pageDomContentLoadedMs": "页面 DOMContentLoaded",
+    "mapReadyMs": "演示登录点击至 Cesium 画布及底图状态就绪",
+    "temperatureLayerMs": "气温图层启用至 Cesium 图层状态 on",
+    "modelUploadMs": "提交固定小型 GLTF 至服务端接收且登记可见",
+    "modelPreviewReadyMs": "地图预览点击至模型二进制读取完成且预览画布就绪"
+  },
+  "rawSamples": [
+    {
+      "pageDomContentLoadedMs": 44.157332999999994,
+      "mapReadyMs": 2341.2108749999998,
+      "temperatureLayerMs": 996.9630419999999,
+      "modelUploadMs": 108.69174999999996,
+      "modelPreviewReadyMs": 805.6181669999996
+    },
+    {
+      "pageDomContentLoadedMs": 32.49924999999985,
+      "mapReadyMs": 854.7491250000003,
+      "temperatureLayerMs": 762.9575839999998,
+      "modelUploadMs": 110.51858299999913,
+      "modelPreviewReadyMs": 897.9943330000006
+    },
+    {
+      "pageDomContentLoadedMs": 32.913040999999794,
+      "mapReadyMs": 979.8322919999991,
+      "temperatureLayerMs": 874.6603329999998,
+      "modelUploadMs": 92.52116699999897,
+      "modelPreviewReadyMs": 648.3705000000009
+    },
+    {
+      "pageDomContentLoadedMs": 31.75616699999955,
+      "mapReadyMs": 980.617542,
+      "temperatureLayerMs": 986.0214159999996,
+      "modelUploadMs": 99.51375000000007,
+      "modelPreviewReadyMs": 742.3900840000006
+    },
+    {
+      "pageDomContentLoadedMs": 30.238249999998516,
+      "mapReadyMs": 852.5538330000018,
+      "temperatureLayerMs": 144.98820799999885,
+      "modelUploadMs": 53.81866699999955,
+      "modelPreviewReadyMs": 665.2971249999973
+    }
+  ],
+  "summary": {
+    "pageDomContentLoadedMs": {
+      "count": 5,
+      "min": 30.238249999998516,
+      "p50": 32.49924999999985,
+      "p95": 44.157332999999994,
+      "max": 44.157332999999994
+    },
+    "mapReadyMs": {
+      "count": 5,
+      "min": 852.5538330000018,
+      "p50": 979.8322919999991,
+      "p95": 2341.2108749999998,
+      "max": 2341.2108749999998
+    },
+    "temperatureLayerMs": {
+      "count": 5,
+      "min": 144.98820799999885,
+      "p50": 874.6603329999998,
+      "p95": 996.9630419999999,
+      "max": 996.9630419999999
+    },
+    "modelUploadMs": {
+      "count": 5,
+      "min": 53.81866699999955,
+      "p50": 99.51375000000007,
+      "p95": 110.51858299999913,
+      "max": 110.51858299999913
+    },
+    "modelPreviewReadyMs": {
+      "count": 5,
+      "min": 648.3705000000009,
+      "p50": 742.3900840000006,
+      "p95": 897.9943330000006,
+      "max": 897.9943330000006
+    }
+  }
+}

@@ -1,0 +1,54 @@
+{
+  "profiles": {
+    "surface-hourly": {
+      "interfaceId": "getSurfEleInRegionByTime",
+      "dataCode": "SURF_CHN_MUL_HOR",
+      "elements": "Station_Id_C,Datetime,Lon,Lat,TEM,PRE_1H,WIN_S_2MI",
+      "timeParameter": "times",
+      "regionParameter": "adminCodes",
+      "limitCnt": 3000,
+      "requestTimeZone": "UTC",
+      "observationTimeZone": "Asia/Shanghai",
+      "extraParameters": {},
+      "fieldMap": {
+        "stationId": "Station_Id_C",
+        "observedAt": "Datetime",
+        "longitude": "Lon",
+        "latitude": "Lat",
+        "temperatureC": "TEM",
+        "rainfallMm": "PRE_1H",
+        "windSpeedMs": "WIN_S_2MI"
+      },
+      "nullValues": ["////", "999999", "999999.0"]
+    }
+  },
+  "scenes": {
+    "xian": {
+      "enabled": false,
+      "baseUrl": "https://tianqing-xian.example.invalid/music-ws/api",
+      "userId": "REPLACE_WITH_XIAN_USER",
+      "password": "REPLACE_WITH_XIAN_PASSWORD",
+      "regionCode": "610100",
+      "serviceNodeId": "NMIC_MUSIC_CMADAAS",
+      "profile": "surface-hourly"
+    },
+    "taiyuan": {
+      "enabled": false,
+      "baseUrl": "https://tianqing-taiyuan.example.invalid/music-ws/api",
+      "userId": "REPLACE_WITH_TAIYUAN_USER",
+      "password": "REPLACE_WITH_TAIYUAN_PASSWORD",
+      "regionCode": "140100",
+      "serviceNodeId": "NMIC_MUSIC_CMADAAS",
+      "profile": "surface-hourly"
+    },
+    "chengdu": {
+      "enabled": false,
+      "baseUrl": "https://tianqing-chengdu.example.invalid/music-ws/api",
+      "userId": "REPLACE_WITH_CHENGDU_USER",
+      "password": "REPLACE_WITH_CHENGDU_PASSWORD",
+      "regionCode": "510100",
+      "serviceNodeId": "NMIC_MUSIC_CMADAAS",
+      "profile": "surface-hourly"
+    }
+  }
+}

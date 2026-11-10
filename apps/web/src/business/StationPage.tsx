@@ -87,6 +87,7 @@ export function StationPage({
     onMap();
   }
   function save(item: ManagedStation, editing?: string) {
+    // 业务校验在共享契约中完成，成功后通过服务端修订队列保存站点集合。
     try {
       const next = saveStation(data.stations, item, editing);
       update((old) => ({ ...old, stations: next }));
@@ -98,6 +99,7 @@ export function StationPage({
     }
   }
   async function attach(file: File | undefined, kind: "video" | "document") {
+    // 先上传受控文件，再保存业务引用；若引用保存失败则回收刚上传的文件。
     if (!file || !station) return;
     try {
       if (kind === "video" && !/\.(mp4|webm)$/i.test(file.name))

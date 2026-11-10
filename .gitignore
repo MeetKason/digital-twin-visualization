@@ -10,8 +10,10 @@ playwright-report/
 !package-lock.json
 
 .data/
+work/
 
 deploy/auth/*.json
 
 deploy/auth/*
 !deploy/auth/.gitkeep
+deploy/tianqing/sources.json

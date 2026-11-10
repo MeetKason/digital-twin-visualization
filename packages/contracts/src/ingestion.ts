@@ -5,7 +5,9 @@ export const hourlyTime = z.iso
   .transform((s) => new Date(s).toISOString());
 export const ingestionRequest = z
   .object({
-    source: z.literal("mock"),
+    source: z.enum(["mock", "tianqing"]),
+    // 缺省值兼容旧版 API 客户端和历史任务。
+    productId: z.string().regex(/^[a-z][a-z0-9-]{1,63}$/).default("surface-hourly"),
     startTime: hourlyTime,
     endTime: hourlyTime,
   })
@@ -26,7 +28,8 @@ export type JobStatus =
   | "cancelled";
 export interface IngestionJob {
   id: string;
-  source: "mock";
+  productId: string;
+  source: "mock" | "tianqing";
   kind: "manual" | "scheduled";
   startTime: string;
   endTime: string;
@@ -43,7 +46,8 @@ export interface IngestionJob {
   createdBy: string;
 }
 export interface IngestionStatus {
-  source: "mock";
+  productId: string;
+  source: "mock" | "tianqing";
   mode: "demo" | "ingested";
   watermark: string | null;
   lastSuccessAt: string | null;
@@ -64,6 +68,40 @@ export const observationSchema = z.object({
     temperatureC: z.number().min(-100).max(70).nullable(),
     rainfallMm: z.number().min(0).max(3000).nullable(),
     windSpeedMs: z.number().min(0).max(150).nullable(),
+    radarDbz: z.number().min(0).max(70).nullable().optional(),
+    cloudPercent: z.number().min(0).max(100).nullable().optional(),
+    windFieldMs: z.number().min(0).max(80).nullable().optional(),
+    relativeHumidity: z.number().min(0).max(100).nullable().optional(),
+    forecastTempC: z.number().min(-80).max(60).nullable().optional(),
+    gridValue: z.number().min(0).max(100).nullable().optional(),
+    warningLevel: z.number().min(0).max(4).nullable().optional(),
+    simulationIntensity: z.number().min(0).max(100).nullable().optional(),
   }),
   quality: z.record(z.string(), z.string()),
 });
+
+export interface IngestionHealthAlert {
+  code:
+    | "failed_jobs"
+    | "missing_observations"
+    | "overdue_jobs"
+    | "stale_lease"
+    | "schedule_stale";
+  severity: "warning" | "critical";
+  count: number;
+  message: string;
+}
+export interface IngestionHealth {
+  source: "mock" | "tianqing";
+  checkedAt: string;
+  metrics: {
+    pendingJobs: number;
+    failedJobs: number;
+    overdueJobs: number;
+    staleRunningJobs: number;
+    missingHours: number;
+    totalRows: number;
+  };
+  missingTimes: string[];
+  alerts: IngestionHealthAlert[];
+}

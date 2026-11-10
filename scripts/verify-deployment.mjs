@@ -1,4 +1,4 @@
-// Local integration verification only. Uses isolated containers, ports and volumes.
+// 仅用于本地集成验收；使用独立容器、端口和数据卷，不复用开发环境数据。
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { mkdtemp, writeFile, rm, mkdir, cp } from "node:fs/promises";
@@ -23,14 +23,17 @@ const env = {
   COOKIE_SECURE: "false",
   COMPOSE_PROJECT_NAME: project,
 };
-// Stage only deployment configuration: macOS protected Documents mounts can stall Docker.
+// 只暂存部署配置，避开 macOS 受保护目录挂载可能导致的 Docker 阻塞。
 const stagedDeploy = join(temp, "deploy");
 await mkdir(join(stagedDeploy, "auth"), { recursive: true });
+await mkdir(join(stagedDeploy, "tianqing"), { recursive: true });
 for (const entry of ["compose.yaml", "config.json", "migrations"]) {
   await cp(resolve("deploy", entry), join(stagedDeploy, entry), {
     recursive: true,
   });
 }
+await cp(resolve("deploy/tianqing/sources.example.json"), join(stagedDeploy, "tianqing/sources.example.json"));
+await cp(resolve("deploy/tianqing/sources.example.json"), join(stagedDeploy, "tianqing/sources.json"));
 const override = join(temp, "override.yaml");
 await writeFile(
   override,
@@ -54,9 +57,11 @@ const composeArgs = [
   "-f",
   override,
 ];
-// Exported to the existing backup/restore shell scripts as well.
+// 备份与恢复 Shell 脚本也通过同一环境变量使用隔离 Compose 项目。
 env.COMPOSE_FILE = `${join(stagedDeploy, "compose.yaml")}:${override}`;
 async function compose(...args) {
+  if (args[0] === "up" || args[0] === "create")
+    args.splice(1, 0, "--pull", "never");
   const result = await exec("docker", [...composeArgs, ...args], {
     env,
     maxBuffer: 4 * 1024 * 1024,
@@ -82,7 +87,7 @@ try {
   console.log(
     "Starting isolated Compose deployment (PostGIS amd64 emulation on ARM hosts)…",
   );
-  // Seed the exact configuration bytes without host bind mounts (Docker Desktop sharing may be unavailable).
+  // 将配置字节复制进容器和命名卷，避免依赖 Docker Desktop 的宿主目录共享。
   await compose("create", "--no-build");
   const postgresId = (await compose("ps", "-aq", "postgres")).trim();
   const webId = (await compose("ps", "-aq", "web")).trim();
@@ -110,7 +115,7 @@ try {
   const login = await call("/auth/demo", "POST");
   assert.equal(login.status, 201);
   cookie = login.headers.get("set-cookie").split(";")[0];
-  // Two independent Workers compete for the same persistent queue.
+  // 启动两个独立 Worker，确认它们通过数据库租约竞争同一持久队列。
   await compose("up", "-d", "--no-build", "--scale", "worker=2", "worker");
   const ingestionPath = "/scenes/xian/ingestion";
   const requested = await call(ingestionPath + "/jobs", "POST", {
@@ -186,7 +191,7 @@ try {
     env,
     maxBuffer: 2 * 1024 * 1024,
   });
-  // Mutate both stores after snapshot, then restore the exact DB/file pair.
+  // 备份后同时修改数据库和文件，再恢复配套快照并核对原始数据。
   await compose("up", "-d", "--no-build", "--wait", "--wait-timeout", "60");
   const remove = await (await call("/scenes/xian/business")).json();
   remove.data.assets = [];

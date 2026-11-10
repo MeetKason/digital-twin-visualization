@@ -5,6 +5,9 @@ import {
   DEMO_TIMES,
   demoStations,
   demoObservations,
+  demoProductGrid,
+  MOCK_LAYER_PRODUCTS,
+  demoDevices,
 } from "@dtv/contracts";
 import xian from "../../../scenarios/xian.json";
 import taiyuan from "../../../scenarios/taiyuan.json";
@@ -31,6 +34,9 @@ export class DemoService {
   stations(sceneId: string) {
     return demoStations(this.scene(sceneId));
   }
+  devices(sceneId: string, now = new Date()) {
+    return demoDevices(this.scene(sceneId), now);
+  }
   times(id: string) {
     this.layer(id);
     return DEMO_TIMES;
@@ -41,13 +47,15 @@ export class DemoService {
     if (!layer.available) throw new NotFoundException(layer.reason);
     if (!DEMO_TIMES.includes(time))
       throw new NotFoundException("对应时次无数据");
+    const mockProduct = MOCK_LAYER_PRODUCTS[id];
     return {
       source: "mock" as const,
       storage: "generated" as const,
       observedAt: time,
       unit: layer.unit,
       crs: "EPSG:4326" as const,
-      observations: demoObservations(scene, time),
+      observations: mockProduct ? [] : demoObservations(scene, time),
+      ...(mockProduct ? { gridCells: demoProductGrid(scene, time, mockProduct) } : {}),
     };
   }
   search(sceneId: string, q: string) {

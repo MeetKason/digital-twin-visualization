@@ -20,6 +20,7 @@ export function useBusiness(sceneId: string) {
     alive = useRef(true),
     blocked = useRef(false),
     pending = useRef(0);
+  // 每次切换地区都重新拉取该会话授权的服务端修订，并取消旧请求。
   useEffect(() => {
     alive.current = true;
     const ctrl = new AbortController();
@@ -56,6 +57,7 @@ export function useBusiness(sceneId: string) {
     window.addEventListener("beforeunload", prevent);
     return () => window.removeEventListener("beforeunload", prevent);
   }, []);
+  /** 乐观更新界面，但将请求排队按 CAS 修订顺序提交；失败则恢复已确认版本。 */
   function update(change: (old: BusinessData) => BusinessData) {
     if (!ref.current || blocked.current) {
       setError("资料未加载或保存已失败，请先重新加载");
@@ -115,6 +117,7 @@ export function useBusiness(sceneId: string) {
       });
     return result;
   }
+  /** 等待排队写入结束后重读服务端修订，解除失败后的写入锁定。 */
   async function reload() {
     try {
       await queue.current;
@@ -129,6 +132,7 @@ export function useBusiness(sceneId: string) {
       setError((e as Error).message);
     }
   }
+  /** 显式迁移当前地区的旧浏览器资料；校验或保存失败时保留原始数据。 */
   function migrateLocal() {
     try {
       const value = parseBusinessData(
@@ -143,7 +147,17 @@ export function useBusiness(sceneId: string) {
       setError("本地资料校验失败，原资料未删除");
     }
   }
-  return { data, update, error, status, reload, legacy, migrateLocal, sceneId };
+  return {
+    data,
+    revision: confirmed.current?.revision ?? 0,
+    update,
+    error,
+    status,
+    reload,
+    legacy,
+    migrateLocal,
+    sceneId,
+  };
 }
 export type Business = ReturnType<typeof useBusiness>;
 export function download(

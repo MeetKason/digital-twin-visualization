@@ -23,6 +23,7 @@ if (
     "Usage: password via stdin | node scripts/create-account.mjs --id NAME --tenant TENANT --role admin|editor|viewer --scenes xian,taiyuan --output deploy/auth/users.json",
   );
 let password = "";
+// 只从标准输入读取口令，避免将明文密码暴露在命令参数和 shell 历史中。
 for await (const chunk of process.stdin) {
   password += chunk.toString();
   if (password.length > 1026) throw new Error("密码过长");
@@ -44,6 +45,7 @@ const salt = randomBytes(16).toString("hex"),
 users.push({ id, tenantId, role, scenes, passwordHash });
 await mkdir(dirname(path), { recursive: true, mode: 0o700 });
 const temp = path + "." + randomBytes(8).toString("hex") + ".tmp";
+// 先以仅当前用户可读的权限写临时文件，再原子替换账号清单，避免半写入配置。
 await writeFile(temp, JSON.stringify(users, null, 2) + "\n", {
   mode: 0o600,
   flag: "wx",

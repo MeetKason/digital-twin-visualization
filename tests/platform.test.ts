@@ -1,5 +1,6 @@
 import { it, expect } from "vitest";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, rm, readFile, mkdir, writeFile } from "node:fs/promises";
+import { createHash } from "node:crypto";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { FileRepository } from "../apps/core-api/src/platform/repository";
@@ -91,6 +92,48 @@ it("同一代理地址下一个账号的错误不能锁住其他账号", async (
     expect(
       (await auth.login("first", "first-password", "another-client")).user.id,
     ).toBe("first");
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+it("旧 platform.json 会惰性迁移为按实体分离的业务文件", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "dtv-file-entities-"));
+  try {
+    const legacyData = {
+      version: 1,
+      stations: [{ id: "station-1", name: "旧站点" }],
+      assets: [{ id: "asset-1", blobId: "blob-1" }],
+      bookmarks: [{ id: "bookmark-1", name: "旧视角" }],
+      plans: [{ id: "plan-1", points: [{ id: "point-1" }] }],
+      users: [{ id: "user-1", role: "管理员" }],
+    };
+    await mkdir(dir, { recursive: true });
+    await writeFile(join(dir, "platform.json"), JSON.stringify({
+      business: { '["alpha","xian"]': { revision: 7, data: legacyData } },
+      sessions: {}, audit: [], publications: [],
+    }));
+
+    const repo = new FileRepository(dir);
+    expect(await repo.readBusiness("alpha", "xian")).toEqual({
+      revision: 7, data: legacyData,
+    });
+    const persisted = JSON.parse(await readFile(join(dir, "platform.json"), "utf8"));
+    const businessKey = JSON.stringify(["alpha", "xian"]);
+    expect(persisted.business[businessKey]).toMatchObject({
+      revision: 7, bundleId: expect.any(String),
+    });
+    expect(JSON.stringify(persisted)).not.toContain("旧站点");
+    const scopeHash = createHash("sha256").update(businessKey).digest("hex");
+    const root = join(dir, "business-bundles", scopeHash, persisted.business[businessKey].bundleId);
+    expect(JSON.parse(await readFile(join(root, "stations.json"), "utf8"))).toEqual(legacyData.stations);
+    expect(JSON.parse(await readFile(join(root, "assets.json"), "utf8"))).toEqual(legacyData.assets);
+    expect(JSON.parse(await readFile(join(root, "bookmarks.json"), "utf8"))).toEqual(legacyData.bookmarks);
+    expect(JSON.parse(await readFile(join(root, "plans.json"), "utf8"))).toEqual(legacyData.plans);
+    expect(JSON.parse(await readFile(join(root, "metadata.json"), "utf8"))).toEqual({
+      values: { version: 1, users: legacyData.users },
+      entityFields: ["stations", "assets", "bookmarks", "plans"],
+    });
   } finally {
     await rm(dir, { recursive: true, force: true });
   }

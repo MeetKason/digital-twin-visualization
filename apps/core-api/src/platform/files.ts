@@ -45,6 +45,7 @@ export class FileStore {
     scene: string,
     id: string,
   ): Promise<StoredFile> {
+    // 上传前限制编码类型、大小和文件名；内容仍需由契约校验器复核。
     try {
       return JSON.parse(
         await readFile(join(this.path(tenant, scene, id), "meta.json"), "utf8"),
@@ -134,6 +135,7 @@ export class FileStore {
     );
   }
   async validateReferences(tenant: string, scene: string, assets: Asset[]) {
+    // 保存业务资料时核对服务端文件元数据，阻止跨租户或已删除资源被引用。
     for (const asset of assets) {
       // Existing browser-only records remain readable and can be explicitly migrated.
       if (!asset.blobId.startsWith("srv_")) continue;

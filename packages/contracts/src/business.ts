@@ -72,6 +72,24 @@ export interface BusinessData {
   plans: CruisePlan[];
   users: DemoUser[];
 }
+export interface BusinessPublication {
+  id: string;
+  tenantId: string;
+  sceneId: string;
+  revision: number;
+  publisher: string;
+  message: string;
+  publishedAt: string;
+  snapshot: BusinessData;
+  approvalStatus: "pending_approval" | "approved" | "rejected";
+  approvedBy?: string;
+  rejectedBy?: string;
+  reviewedAt?: string;
+  reviewMessage?: string;
+  active?: boolean;
+  trafficPercent?: number;
+  previousRevision?: number;
+}
 export function parseCoordinate(lon: string, lat: string): Coordinate {
   if (!lon.trim() || !lat.trim()) throw new Error("经纬度不能为空");
   const point: [number, number] = [Number(lon), Number(lat)];
@@ -85,6 +103,7 @@ export function parseCoordinate(lon: string, lat: string): Coordinate {
 }
 const rad = (v: number) => (v * Math.PI) / 180;
 const R = 6371008.8;
+/** 用球面 Haversine 公式累计相邻点距离；用于演示测量，不代表测绘成果。 */
 export function distanceMeters(points: Coordinate[]): number {
   return points.slice(1).reduce((sum, b, i) => {
     const a = points[i];
@@ -96,6 +115,7 @@ export function distanceMeters(points: Coordinate[]): number {
     return sum + 2 * R * Math.asin(Math.sqrt(Math.min(1, h)));
   }, 0);
 }
+/** 用球面经纬度环面积近似计算多边形面积，少于三个点时面积为零。 */
 export function areaMeters(points: Coordinate[]): number {
   if (points.length < 3) return 0;
   const area = points.reduce((sum, a, i) => {
@@ -107,6 +127,7 @@ export function areaMeters(points: Coordinate[]): number {
   }, 0);
   return Math.abs((area * R * R) / 2);
 }
+/** 校验站点坐标、编码与高程后生成新增或编辑后的不可变数组。 */
 export function saveStation(
   stations: ManagedStation[],
   item: ManagedStation,

@@ -9,6 +9,13 @@ describe("场景与数据契约", () => {
     expect(x[0].id).not.toBe(t[0].id);
     expect(x[0].source).toBe("mock");
   });
+  it("设备清单返回可重复、带 Mock 来源的遥测状态", () => {
+    const devices = service.devices("xian", new Date("2026-11-07T00:00:00Z"));
+    expect(devices).toHaveLength(6);
+    expect(devices.every((device) => device.source === "mock")).toBe(true);
+    expect(new Set(devices.map((device) => device.status))).toEqual(new Set(["online", "warning", "offline"]));
+    expect(service.devices("taiyuan")[0].id).not.toBe(devices[0].id);
+  });
   it("未知场景与图层被拒绝，不返回默认地区", () => {
     expect(() => service.layers("unknown")).toThrow();
     expect(() => service.times("unknown")).toThrow();
@@ -24,6 +31,27 @@ describe("场景与数据契约", () => {
     );
     expect(r.source).toBe("mock");
     expect(r.observedAt).toBe(service.times("temperature")[0]);
+  });
+  it("雷达与卫星提供可重复且明确标记为 Mock 的格点数据", () => {
+    for (const [layerId, unit] of [["radar", "dBZ"], ["satellite", "%"]] as const) {
+      expect(service.layer(layerId).available).toBe(true);
+      const first = service.data(layerId, "xian", service.times(layerId)[0]);
+      const second = service.data(layerId, "xian", service.times(layerId)[0]);
+      expect(first).toMatchObject({ source: "mock", storage: "generated", unit });
+      expect(first.gridCells).toHaveLength(80);
+      expect(first.gridCells).toEqual(second.gridCells);
+      expect(first.gridCells?.every((cell) => cell.value >= 0 && cell.value <= (layerId === "radar" ? 70 : 100))).toBe(true);
+    }
+  });
+  it("风场、湿度、综合网格、预报、预警和环境模拟均有 Mock 格点", () => {
+    for (const layerId of ["wind", "humidity", "grid", "forecast", "warning", "simulation"]) {
+      const layer = service.layer(layerId);
+      expect(layer.available).toBe(true);
+      const frame = service.data(layerId, "taiyuan", service.times(layerId)[6]);
+      expect(frame).toMatchObject({ source: "mock", storage: "generated" });
+      expect(frame.gridCells).toHaveLength(80);
+      expect(frame.gridCells?.every((cell) => Number.isFinite(cell.value))).toBe(true);
+    }
   });
   it("搜索校验坐标，查询限定当前场景", () => {
     expect(() => service.search("xian", "999,999")).toThrow("坐标");

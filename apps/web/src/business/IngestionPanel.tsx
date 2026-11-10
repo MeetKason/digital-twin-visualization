@@ -1,5 +1,9 @@
 import { useEffect, useRef, useState } from "react";
-import type { DataFrame, IngestionStatus } from "@dtv/contracts";
+import type {
+  DataFrame,
+  IngestionHealth,
+  IngestionStatus,
+} from "@dtv/contracts";
 import { authApi, type SessionUser } from "../api";
 const hour = 3600000;
 const localHour = (time: number) =>
@@ -13,6 +17,8 @@ const display = (time: string | null) =>
         hour12: false,
       })
     : "—";
+const sourceName = (source: "mock" | "tianqing" | "other" | undefined) =>
+  source === "tianqing" ? "天擎" : source === "other" ? "其他" : "Mock";
 const labels = {
   queued: "等待执行",
   running: "正在采集",
@@ -21,6 +27,12 @@ const labels = {
   failed: "失败",
   cancelled: "已取消",
 };
+interface IngestionProductOption {
+  id: string;
+  label: string;
+  available: boolean;
+  dependencies: string[];
+}
 async function json<T>(
   url: string,
   signal?: AbortSignal,
@@ -48,6 +60,9 @@ export function IngestionPanel({
   onDataChanged: () => void;
 }) {
   const [status, setStatus] = useState<IngestionStatus | null>(null),
+    [health, setHealth] = useState<IngestionHealth | null>(null),
+    [products, setProducts] = useState<IngestionProductOption[]>([]),
+    [productId, setProductId] = useState("surface-hourly"),
     [role, setRole] = useState<SessionUser["role"] | null>(null),
     [error, setError] = useState(""),
     [busy, setBusy] = useState(false);
@@ -57,25 +72,39 @@ export function IngestionPanel({
   const version = useRef(""),
     alive = useRef(true);
   const base = `/api/scenes/${encodeURIComponent(sceneId)}/ingestion`;
+  const scopedBase = `${base}?productId=${encodeURIComponent(productId)}`;
+  const scopedHealth = `${base}/health?productId=${encodeURIComponent(productId)}`;
   useEffect(() => {
     alive.current = true;
     const controller = new AbortController();
-    let pending = false;
-    const refresh = async () => {
-      if (pending) return;
-      pending = true;
+    let pendingStatus = false;
+    // 定时刷新任务和进度，清理时取消未完成请求并停止定时器。
+    const refreshStatus = async () => {
+      if (pendingStatus) return;
+      pendingStatus = true;
       try {
-        const next = await json<IngestionStatus>(base, controller.signal);
+        const next = await json<IngestionStatus>(scopedBase, controller.signal);
         if (!controller.signal.aborted) {
           setStatus(next);
-          const stamp = `${next.mode}:${next.watermark}:${next.lastSuccessAt}`;
+          const stamp = `${productId}:${next.mode}:${next.watermark}:${next.lastSuccessAt}`;
           if (version.current && version.current !== stamp) onDataChanged();
           version.current = stamp;
         }
       } catch (e) {
         if (!controller.signal.aborted) setError((e as Error).message);
       } finally {
-        pending = false;
+        pendingStatus = false;
+      }
+    };
+    const refreshHealth = async () => {
+      try {
+        const next = await json<IngestionHealth>(
+          scopedHealth,
+          controller.signal,
+        );
+        if (!controller.signal.aborted) setHealth(next);
+      } catch (e) {
+        if (!controller.signal.aborted) setError((e as Error).message);
       }
     };
     void authApi
@@ -84,24 +113,38 @@ export function IngestionPanel({
         if (alive.current) setRole(s.user?.role ?? null);
       })
       .catch(() => {});
-    void refresh();
-    const timer = setInterval(() => void refresh(), 1500);
+    void json<IngestionProductOption[]>(base + "/products", controller.signal)
+      .then((items) => { if (!controller.signal.aborted) setProducts(items); })
+      .catch(() => {});
+    void refreshStatus();
+    void refreshHealth();
+    const timer = setInterval(() => void refreshStatus(), 1500);
+    const healthTimer = setInterval(() => void refreshHealth(), 15000);
     return () => {
       alive.current = false;
       controller.abort();
       clearInterval(timer);
+      clearInterval(healthTimer);
     };
-  }, [base, onDataChanged]);
+  }, [base, scopedBase, scopedHealth, productId, onDataChanged]);
+  /** 执行采集面板的统一写请求，随后刷新服务端任务状态。 */
   async function action(path: string, method: string, body?: unknown) {
     setBusy(true);
     setError("");
     try {
-      await json(base + path, undefined, method, body);
+      const payload = body && typeof body === "object"
+        ? { ...(body as Record<string, unknown>), productId }
+        : body;
+      await json(base + path, undefined, method, payload);
       onDataChanged();
       if (!alive.current) return;
-      const next = await json<IngestionStatus>(base);
+      const [next, nextHealth] = await Promise.all([
+        json<IngestionStatus>(scopedBase),
+        json<IngestionHealth>(scopedHealth),
+      ]);
       if (!alive.current) return;
       setStatus(next);
+      setHealth(nextHealth);
     } catch (e) {
       if (alive.current) setError((e as Error).message);
     } finally {
@@ -112,14 +155,55 @@ export function IngestionPanel({
   return (
     <section className="ingestion-panel" aria-label="采集与补数管理">
       <h3>采集与补数</h3>
+      <label>
+        采集产品
+        <select value={productId} disabled={busy} onChange={(event) => setProductId(event.target.value)}>
+          {products.map((product) => <option key={product.id} value={product.id} disabled={!product.available}>{product.label}{product.available ? "" : "（未接入）"}</option>)}
+        </select>
+      </label>
+      {products.find((product) => product.id === productId)?.available === false && <p className="muted">该产品尚无可用连接器，不能创建采集任务或启用计划。</p>}
       <p className="data-disclaimer">
-        当前源：Mock
-        模拟观测。任务会真实保存、执行和入库；尚未连接天擎，不用于业务研判。每个任务最多168小时，失败按5秒、10秒退避重试，连续3次失败后可人工重试。
+        当前源：{sourceName(status?.source)}。
+        {status?.source === "tianqing"
+          ? "请求由服务端按地区配置签名，不会向浏览器暴露账号或口令。"
+          : "使用本地模拟观测，不用于业务研判。"}
+        任务会真实保存、执行和入库；每个任务最多168小时，失败按5秒、10秒退避重试，连续3次失败后可人工重试。
       </p>
+      {health && (
+        <section className="ingestion-health" aria-label="采集健康告警">
+          <div className="ingestion-metrics">
+            <span>待执行 {health.metrics.pendingJobs}</span>
+            <span>失败 {health.metrics.failedJobs}</span>
+            <span>缺测时次 {health.metrics.missingHours}</span>
+            <span>累计观测行 {health.metrics.totalRows}</span>
+          </div>
+          {health.alerts.length ? (
+            <ul className="ingestion-alerts">
+              {health.alerts.map((alert) => (
+                <li key={alert.code} data-severity={alert.severity}>
+                  <strong>
+                    {alert.severity === "critical" ? "告警" : "提醒"}
+                  </strong>
+                  {alert.message}
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p className="muted">当前任务范围内未发现缺测或积压告警。</p>
+          )}
+          {!!health.missingTimes.length && (
+            <p className="muted">
+              缺测时次（最多显示 168 个）：{" "}
+              {health.missingTimes.map((time) => display(time)).join("、")}
+            </p>
+          )}
+          <small>状态检查 {display(health.checkedAt)} · 来源 {sourceName(health.source)}</small>
+        </section>
+      )}
       <dl>
         <dt>数据模式</dt>
         <dd>
-          {status?.mode === "ingested" ? "入库观测（Mock）" : "固定演示数据"}
+          {status?.mode === "ingested" ? `入库观测（${sourceName(status.source)}）` : "固定演示数据"}
         </dd>
         <dt>最近成功入库时次</dt>
         <dd>{display(status?.watermark ?? null)}</dd>
@@ -142,13 +226,13 @@ export function IngestionPanel({
       <label>
         <input
           type="checkbox"
-          disabled={busy || role !== "admin" || !status}
+          disabled={busy || role !== "admin" || !status || products.find((product) => product.id === productId)?.available === false}
           checked={status?.schedule.enabled ?? false}
           onChange={(e) =>
             void action("/config", "PUT", { enabled: e.target.checked })
           }
         />
-        启用每小时 Mock 定时采集
+        启用每小时定时采集（{sourceName(status?.source)}）
       </label>
       <p className="muted">
         仅管理员能切换模式与定时计划。入库模式无资料时显示缺数；定时计划停机后最多自动追补最近24小时，更早时次请手动补数。自动计划领取后创建的任务需单独取消，关闭计划不会取消已有任务。
@@ -160,7 +244,8 @@ export function IngestionPanel({
             Math.floor(Date.now() / hour) * hour,
           ).toISOString();
           void action("/jobs", "POST", {
-            source: "mock",
+            source: status?.source ?? "mock",
+            productId,
             startTime: time,
             endTime: time,
           });
@@ -172,7 +257,8 @@ export function IngestionPanel({
         onSubmit={(e) => {
           e.preventDefault();
           void action("/jobs", "POST", {
-            source: "mock",
+            source: status?.source ?? "mock",
+            productId,
             startTime: start + ":00+08:00",
             endTime: end + ":00+08:00",
           });
@@ -234,7 +320,7 @@ export function IngestionPanel({
                       <br />
                       {display(job.endTime)}
                       <small>
-                        Mock · {job.kind === "scheduled" ? "定时" : "手动"}
+                        {sourceName(job.source)} · {job.kind === "scheduled" ? "定时" : "手动"}
                       </small>
                     </td>
                     <td>{labels[job.status]}</td>
@@ -301,7 +387,7 @@ export function IngestionPanel({
           {frame && (
             <div aria-label="入库数据预览">
               <p>
-                Mock · {display(frame.observedAt)} · {frame.observations.length}{" "}
+                {sourceName(frame.source)} · {display(frame.observedAt)} · {frame.observations.length}{" "}
                 条（{frame.storage === "ingested" ? "入库观测" : "固定演示"}）
               </p>
               <table>

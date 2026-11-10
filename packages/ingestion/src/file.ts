@@ -1,12 +1,23 @@
 import { mkdir, readFile, rename, writeFile, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { randomUUID } from "node:crypto";
-import { IngestionStore, type States, type WriteRows } from "./state";
-// Development only: one API process owns this instance and its embedded executor.
+import {
+  IngestionStore,
+  type IngestionSource,
+  type States,
+  type WriteRows,
+} from "./state";
+import { frameKey } from "./state";
+import type { IngestionProduct } from "./products";
+// 仅用于开发单进程：由单个 API 实例独占文件仓库和内嵌任务执行器。
 export class FileIngestionStore extends IngestionStore {
   private queue: Promise<unknown> = Promise.resolve();
-  constructor(private readonly dir: string) {
-    super();
+  constructor(
+    private readonly dir: string,
+    resolveSource: (sceneId: string, productId?: string) => IngestionSource = () => "mock",
+    products?: IngestionProduct[],
+  ) {
+    super(resolveSource, products);
   }
   protected transaction<T>(
     _scope: [string, string] | null,
@@ -26,11 +37,13 @@ export class FileIngestionStore extends IngestionStore {
         const before = JSON.stringify(states);
         const result = await work(
           states,
-          async (state, rows) => {
+          async (state, rows, productId) => {
             const time = new Date(rows[0].observedAt).toISOString();
-            state.frames[time] = rows;
-            const times = Object.keys(state.frames).sort();
-            for (const old of times.slice(0, Math.max(0, times.length - 1000)))
+            state.frames[frameKey(productId, time)] = rows;
+            const keys = Object.keys(state.frames).filter((key) => {
+              try { return JSON.parse(key)[0] === productId; } catch { return productId === "surface-hourly"; }
+            }).sort();
+            for (const old of keys.slice(0, Math.max(0, keys.length - 1000)))
               delete state.frames[old];
           },
           Date.now(),

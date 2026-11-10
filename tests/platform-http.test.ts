@@ -7,6 +7,7 @@ import { createServer } from "node:net";
 import { request as httpRequest } from "node:http";
 import { once } from "node:events";
 import { hashPassword } from "../apps/core-api/src/platform/auth";
+import { isPublicationCohort } from "../apps/core-api/src/platform/platform";
 it("真实 HTTP：跨租户隔离、角色拒写、CSRF、并发修订、服务重启和注销", async () => {
   const dir = await mkdtemp(join(tmpdir(), "dtv-http-"));
   const server = createServer();
@@ -31,6 +32,13 @@ it("真实 HTTP：跨租户隔离、角色拒写、CSRF、并发修订、服务�
       role: "viewer",
       scenes: ["xian"],
       passwordHash: hashPassword("reader-secret"),
+    },
+    {
+      id: "alpha-reviewer",
+      tenantId: "alpha",
+      role: "admin",
+      scenes: ["xian"],
+      passwordHash: hashPassword("reviewer-secret"),
     },
     {
       id: "beta-admin",
@@ -113,11 +121,70 @@ it("真实 HTTP：跨租户隔离、角色拒写、CSRF、并发修订、服务�
   }
   try {
     await start();
+    const metrics = await call("/metrics");
+    expect(metrics.status).toBe(200);
+    expect(metrics.headers.get("content-type")).toContain("text/plain");
+    expect(await metrics.text()).toContain("dtv_ingestion_schedules_enabled");
     expect((await call("/scenes")).status).toBe(401);
     expect((await call("/auth/demo", "", "POST")).status).toBe(403);
     const a = await login("alpha-admin", "alpha-secret"),
       b = await login("beta-admin", "beta-secret"),
-      v = await login("alpha-reader", "reader-secret");
+      v = await login("alpha-reader", "reader-secret"),
+      reviewer = await login("alpha-reviewer", "reviewer-secret");
+    const accountList = await call("/admin/accounts", a.cookie);
+    expect(accountList.status).toBe(200);
+    expect(
+      (await accountList.json()).every(
+        (account: object) => !("passwordHash" in account),
+      ),
+    ).toBe(true);
+    expect((await call("/admin/accounts", v.cookie)).status).toBe(403);
+    const created = await call("/admin/accounts", a.cookie, "POST", {
+      id: "alpha-new",
+      tenantId: "alpha",
+      role: "viewer",
+      scenes: ["xian"],
+      password: "a-strong-temporary-password",
+    });
+    expect(created.status).toBe(201);
+    expect(JSON.stringify(await created.json())).not.toContain("passwordHash");
+    const newAccount = await login("alpha-new", "a-strong-temporary-password");
+    expect(newAccount.user.role).toBe("viewer");
+    expect((await call("/scenes", newAccount.cookie)).status).toBe(200);
+    expect(
+      (
+        await call("/admin/accounts/alpha-admin", a.cookie, "PUT", {
+          tenantId: "alpha",
+          role: "viewer",
+          scenes: ["xian"],
+          disabled: false,
+        })
+      ).status,
+    ).toBe(403);
+    expect(
+      (
+        await call("/admin/accounts/alpha-new/password", a.cookie, "PUT", {
+          password: "a-different-strong-password",
+        })
+      ).status,
+    ).toBe(200);
+    expect((await call("/scenes", newAccount.cookie)).status).toBe(401);
+    const refreshedAccount = await login(
+      "alpha-new",
+      "a-different-strong-password",
+    );
+    expect(refreshedAccount.user.role).toBe("viewer");
+    expect(
+      (
+        await call("/admin/accounts/alpha-new", a.cookie, "PUT", {
+          tenantId: "alpha",
+          role: "viewer",
+          scenes: ["xian"],
+          disabled: true,
+        })
+      ).status,
+    ).toBe(200);
+    expect((await call("/scenes", refreshedAccount.cookie)).status).toBe(401);
     const original = await (
       await call("/scenes/xian/business", a.cookie)
     ).json();
@@ -132,6 +199,33 @@ it("真实 HTTP：跨租户隔离、角色拒写、CSRF、并发修订、服务�
     const savedBody = await saved.json();
     expect(savedBody.revision).toBe(1);
     expect(savedBody.owner).toEqual({ id: a.user.id, tenantId: "alpha" });
+    const published = await call("/scenes/xian/publications", a.cookie, "POST", { revision: 1, message: "试运行" });
+    expect(published.status).toBe(201);
+    const publishedBody = await published.json();
+    expect(publishedBody.snapshot.stations[0].name).toBe("Alpha private");
+    expect(publishedBody.approvalStatus).toBe("pending_approval");
+    expect((await call("/scenes/xian/publications", a.cookie)).status).toBe(200);
+    expect((await call("/scenes/xian/publications", v.cookie)).status).toBe(403);
+    expect((await call("/scenes/xian/publications/1/review", a.cookie, "POST", {
+      decision: "approve", message: "自批应拒绝",
+    })).status).toBe(409);
+    expect((await call("/scenes/xian/publications/1/review", v.cookie, "POST", {
+      decision: "approve", message: "只读用户不能审批",
+    })).status).toBe(403);
+    const approval = await call("/scenes/xian/publications/1/review", reviewer.cookie, "POST", {
+      decision: "approve", message: "字段已复核",
+    });
+    expect(approval.status).toBe(201);
+    expect((await approval.json()).approvalStatus).toBe("approved");
+    expect((await call("/scenes/xian/publications/1/activate", a.cookie, "POST", {
+      trafficPercent: 10,
+    })).status).toBe(201);
+    const live = await (await call("/scenes/xian/business", v.cookie)).json();
+    expect(live.data.stations[0].name === "Alpha private").toBe(isPublicationCohort(v.user.id, 10));
+    expect((await call("/scenes/xian/business", reviewer.cookie)).status).toBe(200);
+    expect((await call("/scenes/xian/publications", b.cookie)).status).toBe(200);
+    expect(await (await call("/scenes/xian/publications", b.cookie)).json()).toEqual([]);
+    expect((await call("/scenes/xian/publications", a.cookie, "POST", { revision: 1 })).status).toBe(409);
     expect(
       (await call("/scenes/xian/business", a.cookie, "PUT", original)).status,
     ).toBe(409);
@@ -166,6 +260,7 @@ it("真实 HTTP：跨租户隔离、角色拒写、CSRF、并发修订、服务�
       ).status,
     ).toBe(403);
     const editor = await login("alpha-editor", "editor-secret");
+    expect((await call("/scenes/xian/publications", editor.cookie, "POST", { revision: 1 })).status).toBe(403);
     const editState = await (
       await call("/scenes/xian/business", editor.cookie)
     ).json();
@@ -190,14 +285,12 @@ it("真实 HTTP：跨租户隔离、角色拒写、CSRF、并发修订、服务�
     expect(
       (await call(ingestionPath + "/jobs", v.cookie, "POST", request)).status,
     ).toBe(403);
-    expect(
-      (
-        await call(ingestionPath + "/jobs", a.cookie, "POST", {
-          ...request,
-          source: "tianqing",
-        })
-      ).status,
-    ).toBe(400);
+    const forgedSource = await call(ingestionPath + "/jobs", a.cookie, "POST", {
+      ...request,
+      source: "tianqing",
+    });
+    expect(forgedSource.status).toBe(201);
+    expect((await forgedSource.json()).source).toBe("mock");
     expect(
       (
         await call(ingestionPath + "/config", v.cookie, "PUT", {
@@ -236,6 +329,22 @@ it("真实 HTTP：跨租户隔离、角色拒写、CSRF、并发修订、服务�
       status: "succeeded",
       completedHours: 2,
     });
+    const health = await call(ingestionPath + "/health", a.cookie);
+    expect(health.status).toBe(200);
+    expect((await health.json()).metrics.missingHours).toBe(0);
+    expect((await call(ingestionPath + "/health", v.cookie)).status).toBe(200);
+    expect(
+      (await (await call(ingestionPath + "/health", b.cookie)).json()).metrics
+        .totalRows,
+    ).toBe(0);
+    expect(
+      (
+        await call(
+          ingestionPath.replace("xian", "chengdu") + "/health",
+          a.cookie,
+        )
+      ).status,
+    ).toBe(403);
     expect((await (await call(ingestionPath, b.cookie)).json()).jobs).toEqual(
       [],
     );
@@ -439,6 +548,20 @@ it("真实 HTTP：跨租户隔离、角色拒写、CSRF、并发修订、服务�
     ).toBe(200);
     expect((await call(downloadPath, a.cookie, "DELETE")).status).toBe(200);
     expect((await call(downloadPath, a.cookie)).status).toBe(404);
+    const rollbackState = await (await call("/scenes/xian/business", a.cookie)).json();
+    expect((await call("/scenes/xian/publications/rollback", v.cookie, "POST", {
+      targetRevision: 1, expectedRevision: rollbackState.revision,
+    })).status).toBe(403);
+    const rollback = await call("/scenes/xian/publications/rollback", a.cookie, "POST", {
+      targetRevision: 1, expectedRevision: rollbackState.revision,
+    });
+    expect(rollback.status).toBe(201);
+    expect((await rollback.json()).revision).toBe(rollbackState.revision + 1);
+    expect((await (await call("/scenes/xian/business", a.cookie)).json()).data.stations[0].name)
+      .toBe("Alpha private");
+    expect((await call("/scenes/xian/publications/rollback", a.cookie, "POST", {
+      targetRevision: 1, expectedRevision: rollbackState.revision,
+    })).status).toBe(409);
     await call("/auth/logout", a.cookie, "POST");
     expect((await call("/scenes", a.cookie)).status).toBe(401);
     for (let i = 0; i < 5; i++)

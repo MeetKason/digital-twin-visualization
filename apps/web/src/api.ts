@@ -15,10 +15,16 @@ async function get<T>(url: string, signal?: AbortSignal): Promise<T> {
   }
   return response.json() as Promise<T>;
 }
+// 只读请求统一走相对 /api 路径，沿用同源会话并支持取消过期页面请求。
 export const api = {
   ingestion: (sceneId: string, signal?: AbortSignal) =>
     get<import("@dtv/contracts").IngestionStatus>(
       `/scenes/${sceneId}/ingestion`,
+      signal,
+    ),
+  ingestionHealth: (sceneId: string, signal?: AbortSignal) =>
+    get<import("@dtv/contracts").IngestionHealth>(
+      `/scenes/${sceneId}/ingestion/health`,
       signal,
     ),
   scenes: (signal?: AbortSignal) => get<SceneConfig[]>("/scenes", signal),
@@ -75,6 +81,7 @@ export async function mutation<T>(
   method: string,
   body?: unknown,
 ): Promise<T> {
+  // 写请求附加同源边界标识；服务端还会校验 Origin、会话、角色和修订号。
   const response = await fetch(`/api${url}`, {
     method,
     credentials: "same-origin",
@@ -110,4 +117,77 @@ export const businessApi = {
     get<BusinessRevision>(`/scenes/${scene}/business`, signal),
   put: (scene: string, state: BusinessRevision) =>
     mutation<BusinessRevision>(`/scenes/${scene}/business`, "PUT", state),
+};
+export const publicationApi = {
+  list: (sceneId: string, signal?: AbortSignal) =>
+    get<import("@dtv/contracts").BusinessPublication[]>(
+      `/scenes/${sceneId}/publications`,
+      signal,
+    ),
+  publish: (sceneId: string, revision: number, message: string) =>
+    mutation<import("@dtv/contracts").BusinessPublication>(
+      `/scenes/${sceneId}/publications`,
+      "POST",
+      { revision, message },
+    ),
+  rollback: (sceneId: string, targetRevision: number, expectedRevision: number) =>
+    mutation<BusinessRevision>(
+      `/scenes/${sceneId}/publications/rollback`,
+      "POST",
+      { targetRevision, expectedRevision },
+    ),
+  review: (sceneId: string, revision: number, decision: "approve" | "reject", message = "") =>
+    mutation<import("@dtv/contracts").BusinessPublication>(
+      `/scenes/${sceneId}/publications/${revision}/review`,
+      "POST",
+      { decision, message },
+    ),
+  activate: (sceneId: string, revision: number, trafficPercent = 100) =>
+    mutation<import("@dtv/contracts").BusinessPublication>(
+      `/scenes/${sceneId}/publications/${revision}/activate`,
+      "POST",
+      { trafficPercent },
+    ),
+};
+export interface ManagedAccount {
+  id: string;
+  tenantId: string;
+  role: SessionUser["role"];
+  scenes: string[];
+  disabled?: boolean;
+}
+export const accountAdminApi = {
+  list: (signal?: AbortSignal) =>
+    get<ManagedAccount[]>("/admin/accounts", signal),
+  create: (body: {
+    id: string;
+    tenantId: string;
+    role: ManagedAccount["role"];
+    scenes: string[];
+    password: string;
+  }) => mutation<ManagedAccount>("/admin/accounts", "POST", body),
+  update: (id: string, body: Omit<ManagedAccount, "id">) =>
+    mutation<ManagedAccount>(
+      `/admin/accounts/${encodeURIComponent(id)}`,
+      "PUT",
+      body,
+    ),
+  resetPassword: (id: string, password: string) =>
+    mutation<{ ok: boolean }>(
+      `/admin/accounts/${encodeURIComponent(id)}/password`,
+      "PUT",
+      { password },
+    ),
+};
+export interface AuditEntry {
+  id: string;
+  tenantId: string;
+  actor: string;
+  sceneId: string;
+  action: string;
+  result: string;
+  at: string;
+}
+export const auditApi = {
+  list: (signal?: AbortSignal) => get<AuditEntry[]>("/audit", signal),
 };

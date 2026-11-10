@@ -35,7 +35,12 @@ export default defineConfig({
           : []),
       ],
     },
-    proxy: { "/api": { target: "http://127.0.0.1:3001", changeOrigin: false } },
+  proxy: {
+    "/api": {
+      target: process.env.DTV_API_TARGET ?? "http://127.0.0.1:3001",
+      changeOrigin: false,
+    },
+  },
   },
   build: { chunkSizeWarningLimit: 1500 },
 });

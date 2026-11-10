@@ -24,6 +24,7 @@ export function CruisePanel({
   const selectedRef = useRef(selected);
   selectedRef.current = selected;
   function cancelSelection() {
+    // 结束地图拾取并清理回调，避免面板关闭后残留一次性地图事件。
     cancelPick.current?.();
     cancelPick.current = null;
     setPicker(false);
@@ -85,6 +86,7 @@ export function CruisePanel({
   function edit(
     change: (old: NonNullable<typeof plan>) => NonNullable<typeof plan>,
   ) {
+    // 漫游运行期间冻结方案修改；任何编辑均标记为未发布保存状态。
     if (!plan || running) return;
     update((old) => ({
       ...old,
@@ -124,6 +126,7 @@ export function CruisePanel({
     setPicker(false);
   }
   function start() {
+    // 启动前由共享契约校验路径，进度控制器负责播放、暂停和停止生命周期。
     try {
       if (!plan?.saved) throw new Error("请先保存方案再开始漫游");
       validatePlan(plan);

@@ -21,6 +21,18 @@ test("登录、地图、图层、透明度、搜索、时次和地区切换", as
     "data-status",
     "on",
   );
+  const radarData = page.waitForResponse((response) =>
+    response.url().includes("/layers/radar/data") && response.request().method() === "GET",
+  );
+  await page.getByRole("switch", { name: "雷达回波" }).click();
+  expect((await radarData).status()).toBe(200);
+  await expect(page.locator('[data-layer="radar"]')).toHaveAttribute("data-status", "on");
+  const satelliteData = page.waitForResponse((response) =>
+    response.url().includes("/layers/satellite/data") && response.request().method() === "GET",
+  );
+  await page.getByRole("switch", { name: "卫星云图" }).click();
+  expect((await satelliteData).status()).toBe(200);
+  await expect(page.locator('[data-layer="satellite"]')).toHaveAttribute("data-status", "on");
   await page.getByLabel("选中图层透明度").fill("35");
   await expect(page.getByText("35%")).toBeVisible();
   await page.getByPlaceholder("搜索图层 / 站点 / 坐标").fill("西安");
@@ -84,7 +96,32 @@ test("独立 ESM 插件注册和卸载站点详情插槽", async ({ page }) => {
     .click();
   await page.getByRole("button", { name: "加载示例插件" }).click();
   await expect(page.getByText("客户扩展示例", { exact: true })).toBeVisible();
+  const sandbox = page.locator('iframe[title^="已隔离插件"]');
+  await expect(sandbox).toHaveCount(1);
+  expect(await sandbox.getAttribute("sandbox")).toBe("allow-scripts");
+  expect(await sandbox.getAttribute("srcdoc")).toContain("connect-src 'none'");
   await page.getByRole("button", { name: "卸载示例插件" }).click();
+  await expect(page.getByText("客户扩展示例", { exact: true })).toHaveCount(0);
+  await expect(sandbox).toHaveCount(0);
+});
+
+test("插件入口哈希不匹配时拒绝安装", async ({ page }) => {
+  await page.route("**/extensions/example/index.js", (route) =>
+    route.fulfill({
+      contentType: "text/javascript",
+      body: "export default { manifest: { id: 'tampered' } };",
+    }),
+  );
+  await page.goto("/");
+  await page.getByRole("button", { name: "进入演示系统" }).click();
+  await page.locator("canvas").waitFor({ state: "visible" });
+  await page.getByPlaceholder("搜索图层 / 站点 / 坐标").fill("西安演示站");
+  await page
+    .getByRole("button", { name: /西安演示站/ })
+    .first()
+    .click();
+  await page.getByRole("button", { name: "加载示例插件" }).click();
+  await expect(page.getByRole("alert")).toContainText("插件完整性校验失败");
   await expect(page.getByText("客户扩展示例", { exact: true })).toHaveCount(0);
 });
 
@@ -169,22 +206,20 @@ test("按菜单：工具书签、漫游方案、点位录入与刷新、专题�
     .click();
   await page.getByRole("button", { name: "低温雨雪冰冻", exact: true }).click();
   await expect(page.getByText("最低温度", { exact: true })).toBeVisible();
+  await expect(page.getByText("仅按页面展示的 Mock 阈值生成站点级提示，不生成正式风险范围或业务预警结论。")).toBeVisible();
   await page.screenshot({ path: "test-results/menu-weather.png" });
   await page
     .locator(".side-navigation")
     .getByRole("button", { name: "设备监控" })
     .click();
-  await expect(
-    page.getByText("设备数据源未接入", { exact: true }),
-  ).toBeVisible();
+  await expect(page.getByText("设备监控 · Mock 演示", { exact: true })).toBeVisible();
+  await expect(page.getByRole("table", { name: "Mock 设备遥测清单" }).locator("tbody tr")).toHaveCount(6);
+  await expect(page.getByRole("table", { name: "Mock 设备遥测清单" })).toContainText("模拟心跳");
   await page
     .locator(".side-navigation")
     .getByRole("button", { name: "系统管理" })
     .click();
-  await page.getByRole("button", { name: "新增演示用户" }).click();
-  await page.getByLabel("用户名称").fill("验收用户");
-  await page.getByRole("button", { name: "保存用户" }).click();
-  await expect(page.getByText("验收用户", { exact: true })).toBeVisible();
+  await expect(page.getByRole("alert")).toContainText("仅真实管理员");
   await page.screenshot({ path: "test-results/menu-settings.png" });
 });
 
@@ -493,7 +528,39 @@ test("采集补数、入库预览、空时次和地图时间轴联动", async ({
     .click();
   await page.getByRole("button", { name: "站点数据", exact: true }).click();
   const panel = page.getByRole("region", { name: "采集与补数管理" });
+  await expect(panel.getByLabel("采集产品")).toHaveValue("surface-hourly");
+  await expect(panel.getByRole("option", { name: "雷达格点" })).not.toHaveAttribute("disabled");
+  const unsupported = await page.request.post("/api/scenes/xian/ingestion/jobs", {
+    headers: { "X-DTV-Request": "1" },
+    data: {
+      source: "mock",
+      productId: "radar-grid",
+      startTime: "2026-11-07T00:00:00Z",
+      endTime: "2026-11-07T00:00:00Z",
+    },
+  });
+  expect(unsupported.status()).toBe(201);
+  await expect.poll(async () => {
+    const response = await page.request.get("/api/scenes/xian/ingestion?productId=radar-grid");
+    return (await response.json()).jobs[0]?.status;
+  }, { timeout: 10000 }).toBe("succeeded");
+  await page.request.put("/api/scenes/xian/ingestion/config", {
+    headers: { "X-DTV-Request": "1" },
+    data: { mode: "ingested", productId: "radar-grid" },
+  });
+  const radarFrameResponse = await page.request.get("/api/layers/radar/data?sceneId=xian&time=2026-11-07T00%3A00%3A00.000Z");
+  expect(radarFrameResponse.status()).toBe(200);
+  expect(await radarFrameResponse.json()).toMatchObject({ source: "mock", storage: "ingested", unit: "dBZ" });
+  expect((await radarFrameResponse.json()).gridCells).toHaveLength(80);
+  await page.request.put("/api/scenes/xian/ingestion/config", {
+    headers: { "X-DTV-Request": "1" },
+    data: { mode: "demo", productId: "surface-hourly" },
+  });
   await expect(panel.getByText("暂无采集任务")).toBeVisible();
+  await expect(panel.getByText("暂无采集任务")).toBeVisible();
+  await expect(panel.getByLabel("采集健康告警")).toContainText(
+    "当前任务范围内未发现缺测或积压告警",
+  );
   await panel.getByRole("checkbox", { name: "使用入库观测" }).click();
   await expect(
     panel.getByRole("checkbox", { name: "使用入库观测" }),
@@ -590,4 +657,51 @@ test("时次接口慢于轮询周期时仍可完成加载", async ({ page }) => 
   await expect(page.locator(".time-ticks button")).toHaveCount(13, {
     timeout: 10000,
   });
+});
+
+test("系统管理显示租户操作审计并支持筛选和导出", async ({ page }) => {
+  await page.route("**/api/audit", (route) =>
+    route.fulfill({
+      json: [
+        {
+          id: "1",
+          tenantId: "demo",
+          actor: '=HYPERLINK("https://example.invalid","click")',
+          sceneId: "xian",
+          action: "auth.login",
+          result: "success",
+          at: "2026-11-09T01:00:00.000Z",
+        },
+        {
+          id: "2",
+          tenantId: "demo",
+          actor: "alpha-editor",
+          sceneId: "taiyuan",
+          action: "business.write",
+          result: "denied",
+          at: "2026-11-09T00:00:00.000Z",
+        },
+      ],
+    }),
+  );
+  await page.goto("/");
+  await page.getByRole("button", { name: "进入演示系统" }).click();
+  await page
+    .locator(".side-navigation")
+    .getByRole("button", { name: "系统管理" })
+    .click();
+  await page.getByRole("button", { name: "操作审计" }).click();
+  await expect(page.getByText("auth.login", { exact: true })).toBeVisible();
+  await page.getByLabel("结果筛选").selectOption("success");
+  await expect(page.getByText("business.write", { exact: true })).toHaveCount(
+    0,
+  );
+  const download = page.waitForEvent("download");
+  await page.getByRole("button", { name: "导出 CSV" }).click();
+  const csvFile = await download;
+  expect(csvFile.suggestedFilename()).toContain("audit.csv");
+  const stream = await csvFile.createReadStream();
+  let csv = "";
+  for await (const chunk of stream) csv += chunk.toString();
+  expect(csv).toContain("'=HYPERLINK");
 });

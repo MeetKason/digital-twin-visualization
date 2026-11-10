@@ -1,14 +1,17 @@
-import { useEffect, useState } from "react";
-import type { DemoUser } from "@dtv/contracts";
+import { useCallback, useEffect, useState } from "react";
 import type { Business } from "./useBusiness";
 import { download } from "./useBusiness";
 import { IngestionPanel } from "./IngestionPanel";
-import { Modal } from "./Modal";
+import { AccountManagement } from "./AccountManagement";
+import { AuditLogPage } from "./AuditLogPage";
+import { PublicationPage } from "./PublicationPage";
 const sections = [
   "用户管理",
   "部署服务配置",
   "账号开通/管理",
   "用户与权限",
+  "发布管理",
+  "操作审计",
   "站点数据",
 ];
 export function SettingsPage({
@@ -19,7 +22,6 @@ export function SettingsPage({
   onDataChanged: () => void;
 }) {
   const [section, setSection] = useState(sections[0]),
-    [user, setUser] = useState<DemoUser | null>(null),
     [config, setConfig] = useState<unknown>(null),
     [error, setError] = useState("");
   useEffect(() => {
@@ -32,11 +34,11 @@ export function SettingsPage({
       });
     return () => ctrl.abort();
   }, []);
-  const permissions: Record<DemoUser["role"], string> = {
-    管理员: "演示配置、点位和漫游方案",
-    操作员: "点位、漫游方案、地图和专题",
-    只读: "地图、专题、站点浏览",
-  };
+  const accountSection = ["用户管理", "账号开通/管理", "用户与权限"].includes(
+    section,
+  );
+  const auditSection = section === "操作审计";
+  const publicationSection = section === "发布管理";
   return (
     <section className="business-page settings-page">
       <aside className="panel">
@@ -59,68 +61,24 @@ export function SettingsPage({
         <div className="panel-heading">
           <strong>{section}</strong>
           <span>
-            {section === "站点数据" ? "服务端资料与采集" : "演示配置"}
+            {accountSection
+              ? "真实登录账号与权限"
+              : auditSection
+                ? "租户范围内的服务端操作记录"
+                : publicationSection
+                  ? "修订快照与发布历史"
+                : section === "站点数据"
+                  ? "服务端资料与采集"
+                  : "演示配置"}
           </span>
         </div>
         <div className="panel-body">
-          <p className="data-disclaimer">
-            业务资料与采集任务按服务器租户和地区保存。下方演示用户表不会改变登录账号的真实权限，不收集或保存生产密码。
-          </p>
-          {["用户管理", "账号开通/管理", "用户与权限"].includes(section) ? (
-            <>
-              <button
-                className="primary"
-                onClick={() =>
-                  setUser({
-                    id: crypto.randomUUID(),
-                    name: "",
-                    role: "只读",
-                    enabled: true,
-                  })
-                }
-              >
-                新增演示用户
-              </button>
-              <table>
-                <thead>
-                  <tr>
-                    <th>用户名称</th>
-                    <th>角色</th>
-                    <th>演示权限说明</th>
-                    <th>状态</th>
-                    <th>操作</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {business.data.users.map((u) => (
-                    <tr key={u.id}>
-                      <td>{u.name}</td>
-                      <td>{u.role}</td>
-                      <td>{permissions[u.role]}</td>
-                      <td>{u.enabled ? "启用" : "停用"}</td>
-                      <td>
-                        <button onClick={() => setUser({ ...u })}>编辑</button>
-                        <button
-                          disabled={u.id === "demo"}
-                          onClick={() =>
-                            business.update((old) => ({
-                              ...old,
-                              users: old.users.map((x) =>
-                                x.id === u.id
-                                  ? { ...x, enabled: !x.enabled }
-                                  : x,
-                              ),
-                            }))
-                          }
-                        >
-                          {u.enabled ? "停用" : "启用"}
-                        </button>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </>
+          {accountSection ? (
+            <AccountManagement />
+          ) : auditSection ? (
+            <AuditLogPage />
+          ) : publicationSection ? (
+            <PublicationPage business={business} />
           ) : section === "部署服务配置" ? (
             <>
               <h3>当前地图服务配置</h3>
@@ -177,75 +135,47 @@ export function SettingsPage({
           )}
         </div>
       </section>
-      {user && (
-        <Modal title="演示用户" onClose={() => setUser(null)}>
-          <form
-            onSubmit={(e) => {
-              e.preventDefault();
-              business.update((old) => ({
-                ...old,
-                users: old.users.some((u) => u.id === user.id)
-                  ? old.users.map((u) =>
-                      u.id === user.id
-                        ? { ...user, name: user.name.trim() }
-                        : u,
-                    )
-                  : [...old.users, { ...user, name: user.name.trim() }],
-              }));
-              setUser(null);
-            }}
-          >
-            <label>
-              用户名称
-              <input
-                required
-                maxLength={50}
-                value={user.name}
-                onChange={(e) => setUser({ ...user, name: e.target.value })}
-              />
-            </label>
-            <label>
-              角色
-              <select
-                value={user.role}
-                onChange={(e) =>
-                  setUser({ ...user, role: e.target.value as DemoUser["role"] })
-                }
-              >
-                {Object.keys(permissions).map((r) => (
-                  <option key={r}>{r}</option>
-                ))}
-              </select>
-            </label>
-            <p className="muted">{permissions[user.role]}（演示说明）</p>
-            <button className="primary">保存用户</button>
-          </form>
-        </Modal>
-      )}
     </section>
   );
 }
-export function DevicePage() {
+
+export function DevicePage({ sceneId }: { sceneId: string }) {
   const [health, setHealth] = useState<{
       status: string;
       mode: string;
       version: string;
     } | null>(null),
+    [devices, setDevices] = useState<{
+      id: string; name: string; type: string; status: "online" | "warning" | "offline";
+      temperatureC: number; batteryPercent: number; signalDbm: number;
+      lastSeenAt: string; source: "mock"; protocol: string;
+    }[]>([]),
     [error, setError] = useState("");
-  async function refresh() {
+  const refresh = useCallback(async () => {
     try {
-      const r = await fetch("/api/health");
-      if (!r.ok) throw new Error("API 不可用");
-      setHealth(await r.json());
+      const [healthResponse, devicesResponse] = await Promise.all([
+        fetch("/api/health"),
+        fetch(`/api/scenes/${encodeURIComponent(sceneId)}/devices`),
+      ]);
+      if (!healthResponse.ok || !devicesResponse.ok) throw new Error("设备模拟数据不可用");
+      const [nextHealth, nextDevices] = await Promise.all([healthResponse.json(), devicesResponse.json()]);
+      setHealth(nextHealth);
+      setDevices(nextDevices);
       setError("");
     } catch (e) {
       setHealth(null);
       setError((e as Error).message);
     }
-  }
+  }, [sceneId]);
   useEffect(() => {
     void refresh();
-  }, []);
+    const timer = setInterval(() => void refresh(), 15000);
+    return () => clearInterval(timer);
+  }, [refresh]);
+  const online = devices.filter((device) => device.status === "online").length;
+  const warning = devices.filter((device) => device.status === "warning").length;
+  const offline = devices.filter((device) => device.status === "offline").length;
+  const statusLabel = { online: "在线（Mock）", warning: "告警（Mock）", offline: "离线（Mock）" };
   return (
     <section className="business-page device-page panel">
       <div className="panel-heading">
@@ -255,10 +185,25 @@ export function DevicePage() {
         </button>
       </div>
       <div className="panel-body">
-        <h2>设备数据源未接入</h2>
-        <p className="muted">
-          “新电子沙盘”中仅有此菜单，未提供独立设备监控画板。当前不显示虚构设备、视频或运行告警。
-        </p>
+        <h2>设备监控 · Mock 演示</h2>
+        <p className="data-disclaimer">以下设备、心跳和遥测均为确定性模拟数据，仅用于页面与告警交互验收，不代表真实设备接入状态；视频流和真实协议尚未接入。</p>
+        {error && <p role="alert" className="error-text">{error}</p>}
+        <div className="ingestion-metrics">
+          <span>设备总数 {devices.length}</span>
+          <span>在线 {online}</span>
+          <span>异常 {warning}</span>
+          <span>离线 {offline}</span>
+        </div>
+        <div className="table-scroll">
+          <table aria-label="Mock 设备遥测清单">
+            <thead><tr><th>设备</th><th>类型</th><th>状态</th><th>温度</th><th>电池</th><th>信号</th><th>最近心跳</th><th>数据源</th></tr></thead>
+            <tbody>{devices.map((device) => <tr key={device.id} data-status={device.status}>
+              <td>{device.name}<small>{device.id}</small></td><td>{device.type}</td><td>{statusLabel[device.status]}</td>
+              <td>{device.temperatureC.toFixed(1)} °C</td><td>{device.batteryPercent}%</td><td>{device.signalDbm} dBm</td>
+              <td>{new Date(device.lastSeenAt).toLocaleString("zh-CN", { timeZone: "Asia/Shanghai", hour12: false })}</td><td>{device.protocol}</td>
+            </tr>)}</tbody>
+          </table>
+        </div>
         <h3>本机 API 健康</h3>
         <dl>
           <dt>API 状态</dt>

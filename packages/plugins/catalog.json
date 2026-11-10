@@ -1,0 +1,11 @@
+{
+  "version": 1,
+  "plugins": [
+    {
+      "id": "example.station-popup",
+      "version": "1.0.0",
+      "coreApi": 1,
+      "directory": "example"
+    }
+  ]
+}

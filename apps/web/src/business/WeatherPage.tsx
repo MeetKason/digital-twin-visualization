@@ -1,10 +1,11 @@
 import { useEffect, useState } from "react";
-import type { DataFrame } from "@dtv/contracts";
+import { deriveMockWeatherWarning, type DataFrame, type MockWeatherTopic } from "@dtv/contracts";
 import type { MapFacade, LayerRuntime } from "@dtv/sdk";
 import { beijingTime } from "../time";
 import { api } from "../api";
 import type { Business } from "./useBusiness";
 const topics = ["暴雨洪涝", "强对流", "低温雨雪冰冻", "山洪地质灾害"];
+const topicKeys: MockWeatherTopic[] = ["rainstorm", "convection", "cold-snow", "flash-flood"];
 export function WeatherPage({
   business,
   map,
@@ -22,6 +23,7 @@ export function WeatherPage({
     [frame, setFrame] = useState<DataFrame | null>(null),
     [error, setError] = useState("");
   useEffect(() => {
+    // 专题只读取当前场景和时次；请求取消可防止切换页面后旧结果覆盖新状态。
     const ctrl = new AbortController();
     setFrame(null);
     setError("");
@@ -45,10 +47,18 @@ export function WeatherPage({
       void runtime.toggle(topic === 2 ? "temperature" : "rainfall", false);
     };
   }, [runtime, topic]);
+  // 将观测按站点编码关联，再由共享 Mock 规则生成带来源标签的提示。
   const rows = business.data.stations.map((s) => ({
     station: s,
     observation: frame?.observations.find((o) => o.stationId === s.id),
+    warning: deriveMockWeatherWarning(topicKeys[topic], frame?.observations.find((o) => o.stationId === s.id), s.elevationM),
   }));
+  const warnedRows = rows.filter((row) => row.warning);
+  const warningLevel = warnedRows.some((row) => row.warning?.level === "红色 Mock")
+    ? "红色 Mock"
+    : warnedRows.some((row) => row.warning?.level === "橙色 Mock")
+      ? "橙色 Mock"
+      : warnedRows.length ? "黄色 Mock" : "无 Mock 提示";
   const values = rows
     .map((r) =>
       topic === 2
@@ -78,7 +88,7 @@ export function WeatherPage({
             </button>
           ))}
           <p className="data-disclaimer">
-            未接入正式风险算法，不生成风险范围或正式预警结论。
+            仅按页面展示的 Mock 阈值生成站点级提示，不生成正式风险范围或业务预警结论。
           </p>
         </div>
       </aside>
@@ -97,8 +107,8 @@ export function WeatherPage({
               `${statistic} ${topic === 2 ? "°C" : "mm"}`,
             ],
             ["关注站点", `${rows.filter((r) => r.observation).length} 个`],
-            ["影响范围", "算法未接入"],
-            ["预警等级", "未接入正式预警"],
+            ["模拟影响站点", `${warnedRows.length} 个`],
+            ["模拟提示等级", warningLevel],
           ].map(([name, value]) => (
             <div className="metric-block" key={name}>
               <span>{name}</span>
@@ -115,7 +125,7 @@ export function WeatherPage({
       <section className="topic-table panel">
         <div className="panel-heading">
           <strong>重点站点与预警列表</strong>
-          <span>示例观测 · 非正式预警</span>
+          <span>Mock 阈值结果 · 非正式预警</span>
         </div>
         <div className="table-scroll">
           <table>
@@ -134,7 +144,7 @@ export function WeatherPage({
               </tr>
             </thead>
             <tbody>
-              {rows.map(({ station: s, observation: o }) => (
+              {rows.map(({ station: s, observation: o, warning }) => (
                 <tr key={s.id}>
                   <td>
                     <button onClick={() => map?.flyTo(s.lon, s.lat, 9000)}>
@@ -149,7 +159,7 @@ export function WeatherPage({
                       : o?.elements.rainfallMm) ?? "—"}{" "}
                     {topic === 2 ? "°C" : "mm"}
                   </td>
-                  <td>未接入</td>
+                  <td>{warning ? `${warning.level} · ${warning.type} ${warning.value.toFixed(1)} ${warning.unit}` : "无 Mock 提示"}</td>
                   <td>{beijingTime(o?.observedAt)}</td>
                 </tr>
               ))}
