@@ -67,13 +67,19 @@ export async function runtimeConfig(): Promise<RuntimeConfig> {
   const r = await fetch("/config.json");
   if (!r.ok) throw new Error("无法读取地图配置");
   const config = (await r.json()) as RuntimeConfig;
-  const service = await fetch("/api/display-config", { cache: "no-store" });
-  const display = service.ok
-    ? ((await service.json()) as {
-        tiandituKey?: string | null;
-        cesiumIonAccessToken?: string | null;
-      })
-    : { tiandituKey: null, cesiumIonAccessToken: null };
+  let display: {
+    tiandituKey?: string | null;
+    cesiumIonAccessToken?: string | null;
+  } = { tiandituKey: null, cesiumIonAccessToken: null };
+  try {
+    const service = await fetch("/api/display-config", {
+      cache: "no-store",
+      signal: AbortSignal.timeout(2000),
+    });
+    if (service.ok) display = await service.json();
+  } catch {
+    // 在线凭据服务不可用时仍继续使用静态地图配置和本地椭球地形。
+  }
   const runtime = {
     ...config,
     tiandituKey: display.tiandituKey ?? undefined,

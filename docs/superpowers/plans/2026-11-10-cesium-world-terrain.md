@@ -47,6 +47,7 @@
 - [x] 将服务端配置接口和 Web 运行时配置类型改为读取 ion 令牌；验证未设置时返回 `null`。
 - [x] 在 Compose 和环境变量示例中加入令牌占位配置及域名限制说明，确认 `.env` 仍被 Git 忽略。
 - [x] 更新中文项目和离线部署文档，说明令牌权限、域名约束及在线服务依赖。
+- [x] 更新 Nginx 来源策略为 `strict-origin-when-cross-origin`，向 Cesium ion 提供授权来源 Origin。
 
 ### Task 2: 固定卫星影像并移除底图切换
 
@@ -61,6 +62,7 @@
 
 - [x] 保持地图启动时加载 `img_w`，去掉矢量/卫星/地形三按钮及相关 CSS。
 - [x] 确认天地图署名和既有地图功能控件不受影响。
+- [x] 将气象格网、站点标记、测量图形和示例范围线贴合地形，避免山体遮挡。
 
 ### Task 3: 启用真实地形并处理失败
 
@@ -68,12 +70,13 @@
 - 修改：`apps/web/src/MapView.tsx`
 
 **接口：**
-- 使用 Cesium `createWorldTerrainAsync({ requestVertexNormals: true, requestWaterMask: true })` 创建 Cesium World Terrain。
+- 使用 Cesium `createWorldTerrainAsync()` 创建 Cesium World Terrain。
 - 若配置 `terrainUrl`，使用现有 `CesiumTerrainProvider.fromUrl()`；否则在存在 ion 令牌时设置 `Ion.defaultAccessToken` 并加载 Cesium World Terrain。
 
-- [x] 内网 `terrainUrl` 优先；没有内网地址且令牌存在时加载 Cesium World Terrain，并开启 `globe.depthTestAgainstTerrain`。
+- [x] 内网 `terrainUrl` 优先；没有内网地址且令牌存在时，在后台加载 Cesium World Terrain，并开启 `globe.depthTestAgainstTerrain`；保持原有光照设置不变。
 - [x] 无令牌时不访问 ion，状态提示当前显示椭球。
-- [x] 地形异步加载失败时保留已有底图和地图交互，并提示真实地形未加载。
+- [x] 地形初始化有 15 秒超时，失败时保留已有底图、图层和测量工具并提示真实地形未加载。
+- [x] 处理 `CesiumTerrainProvider.errorEvent` 的最终瓦片错误并清理监听器。
 
 ### Task 4: 静态验证与部署
 
@@ -81,7 +84,8 @@
 - 构建产物：`apps/web/dist`、`dist/server`（不提交临时产物）
 - 部署：服务器 `/home/ubuntu/dtv-visualization/.env` 与 Docker Compose 容器
 
-- [ ] 执行 `npm run typecheck`、`npm run build` 和 `git diff --check`。
-- [ ] 检查静态打包文件不包含真实 ion 令牌，确认 `.env` 未被 Git 跟踪。
+- [x] 执行 `npm run typecheck`、`npm run build` 和 `git diff --check`。
+- [x] 检查静态打包文件不包含 ion 令牌，确认 `.env` 未被 Git 跟踪。
 - [ ] 构建 `linux/amd64` 镜像并部署，确认 Web/API 健康检查通过。
-- [ ] 在浏览器确认仅显示卫星底图；有令牌时出现地形起伏，无令牌/失败时出现回退提示。
+- [x] 确认部署版仅显示卫星底图；没有令牌时保留地图并提示椭球回退。
+- [ ] 配置有效 Cesium ion 令牌后，在浏览器确认地形起伏、图层贴地显示和测量交互。

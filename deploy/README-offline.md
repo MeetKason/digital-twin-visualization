@@ -42,7 +42,7 @@ DTV_VERSION=0.3.0 docker compose -f deploy/compose.yaml up -d --no-build --pull 
 
 服务器需预先安装 Docker Engine 和 Compose，镜像必须匹配目标 CPU 架构。本流程不安装软件包，也不从网络拉取镜像。应用自带的静态资源无需浏览器访问公网；配置的底图、地形或模型服务必须能从相应运行环境访问。
 
-默认 Web 绑定 `127.0.0.1:8080`，用于接入服务器反向代理。只有在防火墙和上游 TLS 终止配置完成后，才设置 `WEB_BIND_ADDRESS=0.0.0.0` 和适用的 `WEB_PORT`。用户通过 HTTPS 访问时必须设置 `COOKIE_SECURE=true`。示例环境关闭演示登录并启用安全 Cookie；仅在隔离的本地评估环境中，才设置 `DEMO_ENABLED=true` 和 `COOKIE_SECURE=false`。接入天地图时，将浏览器端 Key 配置在 `deploy/.env` 的 `TDT_API_KEY` 中。已登录用户的地图通过 API 配置接口获取该 Key，并由浏览器直接请求 WMTS；由于浏览器端 Key 会出现在瓦片请求中，请在天地图控制台限制授权域名。接入 Cesium World Terrain 时，在 `deploy/.env` 配置 `CESIUM_ION_ACCESS_TOKEN`，使用仅能读取所需地形资源且限制允许站点来源的令牌；地图通过登录保护的 API 配置接口按需读取令牌，浏览器直接请求 Cesium ion 地形服务，因此需要外网访问。未配置令牌或服务不可达时，地图保留椭球并提示真实地形未加载。生产数据、许可证、容量、安全控制和目标主机验收完成前，API 会拒绝 `DEPLOYMENT_MODE=production`，因此本安装包运行于演示/Mock 模式。
+默认 Web 绑定 `127.0.0.1:8080`，用于接入服务器反向代理。只有在防火墙和上游 TLS 终止配置完成后，才设置 `WEB_BIND_ADDRESS=0.0.0.0` 和适用的 `WEB_PORT`。用户通过 HTTPS 访问时必须设置 `COOKIE_SECURE=true`。示例环境关闭演示登录并启用安全 Cookie；仅在隔离的本地评估环境中，才设置 `DEMO_ENABLED=true` 和 `COOKIE_SECURE=false`。接入天地图时，将浏览器端 Key 配置在 `deploy/.env` 的 `TDT_API_KEY` 中。已登录用户的地图通过 API 配置接口获取该 Key，并由浏览器直接请求 WMTS；由于浏览器端 Key 会出现在瓦片请求中，请在天地图控制台限制授权域名。接入 Cesium World Terrain 时，在 `deploy/.env` 配置 `CESIUM_ION_ACCESS_TOKEN`，使用仅能读取所需地形资源且限制允许站点来源的令牌；地图通过登录保护的 API 配置接口按需读取令牌，浏览器直接请求 Cesium ion 地形服务，因此需要外网访问。部署 Nginx 会对跨站请求发送来源站点 Origin，令牌允许来源应填写实际访问页面的协议、主机和端口。未配置令牌或服务不可达时，地图保留椭球并提示真实地形未加载。生产数据、许可证、容量、安全控制和目标主机验收完成前，API 会拒绝 `DEPLOYMENT_MODE=production`，因此本安装包运行于演示/Mock 模式。
 
 ## 升级与回滚
 

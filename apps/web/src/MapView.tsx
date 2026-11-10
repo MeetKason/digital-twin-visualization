@@ -3,6 +3,8 @@ import {
   Viewer,
   Ion,
   createWorldTerrainAsync,
+  HeightReference,
+  TileProviderError,
   Cartographic,
   Math as CesiumMath,
   HeadingPitchRange,
@@ -71,6 +73,10 @@ export default function MapView({
     let viewer: Viewer | undefined;
     let runtime: LayerRuntime | undefined;
     let handler: ScreenSpaceEventHandler | undefined;
+    let removeTerrainErrorListener: (() => void) | undefined;
+    let terrainLoadTimer: number | undefined;
+    let previousIonAccessToken: string | undefined;
+    let activeIonAccessToken: string | undefined;
     let drawing: {
       kind: "distance" | "area";
       points: Coordinate[];
@@ -155,34 +161,70 @@ export default function MapView({
           : config.basemap
             ? "内网底图"
             : "本地低精度底图";
-        try {
-          let terrain: CesiumTerrainProvider | null = null;
-          if (config.terrainUrl) {
-            terrain = await CesiumTerrainProvider.fromUrl(config.terrainUrl);
-          } else if (config.cesiumIonAccessToken) {
-            // 令牌由登录保护的 API 配置接口提供；使用者应限制站点来源和可访问资源。
-            Ion.defaultAccessToken = config.cesiumIonAccessToken;
-            terrain = await createWorldTerrainAsync({
-              requestVertexNormals: true,
-              requestWaterMask: true,
-            });
-          }
-          if (disposed) return;
-          if (terrain) {
-            v.terrainProvider = terrain;
-            v.scene.globe.depthTestAgainstTerrain = true;
-            v.scene.globe.enableLighting = true;
-            setNotice(`${baseMapLabel} · Cesium 真实地形已启用 · 气象图层为 Mock 示例`);
-          } else {
-            setNotice(`${baseMapLabel} · 未配置真实地形，当前显示平滑椭球`);
-          }
-        } catch {
-          if (disposed) return;
+        const configuredTerrain = Boolean(
+          config.terrainUrl || config.cesiumIonAccessToken,
+        );
+        const setEllipsoidFallback = (reason: string) => {
+          if (disposed || v.isDestroyed()) return;
           v.terrainProvider = new EllipsoidTerrainProvider();
           v.scene.globe.depthTestAgainstTerrain = false;
           v.scene.globe.enableLighting = false;
-          setNotice(`${baseMapLabel} · 真实地形未加载，当前显示平滑椭球`);
-          setError("真实地形加载失败，请检查 Cesium ion 令牌、授权范围和网络连接");
+          setNotice(`${baseMapLabel} · ${reason}，当前显示平滑椭球`);
+        };
+        if (!configuredTerrain) {
+          setEllipsoidFallback("未配置真实地形");
+        } else {
+          // 地形网络请求在后台执行，不阻塞图层运行时、测量工具和 onReady 初始化。
+          void (async () => {
+            const providerName = config.terrainUrl ? "内网地形服务" : "Cesium ion";
+            try {
+              let terrainPromise: Promise<CesiumTerrainProvider>;
+              if (config.terrainUrl) {
+                terrainPromise = CesiumTerrainProvider.fromUrl(config.terrainUrl);
+              } else {
+                const token = config.cesiumIonAccessToken;
+                if (!token) throw new Error("未配置 Cesium ion 令牌");
+                // 令牌由登录保护的 API 配置接口提供；使用者应限制站点来源和可访问资源。
+                previousIonAccessToken = Ion.defaultAccessToken;
+                activeIonAccessToken = token;
+                Ion.defaultAccessToken = activeIonAccessToken;
+                terrainPromise = createWorldTerrainAsync();
+              }
+              const terrainTimeout = new Promise<never>((_, reject) => {
+                terrainLoadTimer = window.setTimeout(
+                  () => reject(new Error("地形服务连接超时")),
+                  15000,
+                );
+              });
+              const terrain = await Promise.race([terrainPromise, terrainTimeout]);
+              if (terrainLoadTimer !== undefined) window.clearTimeout(terrainLoadTimer);
+              terrainLoadTimer = undefined;
+              if (disposed || v.isDestroyed()) return;
+              let terrainFailed = false;
+              removeTerrainErrorListener = terrain.errorEvent.addEventListener(
+                (tileError: TileProviderError) => {
+                  if (disposed || v.isDestroyed()) return;
+                  if (terrainFailed) return;
+                  if (tileError.retry) {
+                    setNotice(`${baseMapLabel} · 正在重试真实地形瓦片`);
+                    return;
+                  }
+                  terrainFailed = true;
+                  setEllipsoidFallback(`${providerName}地形瓦片加载失败`);
+                  setError(`${providerName}地形瓦片访问失败，请检查令牌授权和网络连接`);
+                },
+              );
+              v.terrainProvider = terrain;
+              v.scene.globe.depthTestAgainstTerrain = true;
+              setNotice(`${baseMapLabel} · Cesium 真实地形已启用 · 气象图层为 Mock 示例`);
+            } catch {
+              if (terrainLoadTimer !== undefined) window.clearTimeout(terrainLoadTimer);
+              terrainLoadTimer = undefined;
+              if (disposed) return;
+              setEllipsoidFallback(`${providerName}真实地形未加载`);
+              setError(`${providerName}真实地形加载失败，请检查令牌、授权范围和网络连接`);
+            }
+          })();
         }
         const createLayer = async (
           id: string,
@@ -215,6 +257,7 @@ export default function MapView({
           if (id === "boundary") {
             source.entities.add({
               polyline: {
+                clampToGround: true,
                 positions: Cartesian3.fromDegreesArray([
                   lon - 0.55,
                   lat - 0.42,
@@ -235,6 +278,7 @@ export default function MapView({
               position: Cartesian3.fromDegrees(lon + 0.42, lat + 0.45),
               label: {
                 text: "示例范围 · 非行政边界",
+                heightReference: HeightReference.CLAMP_TO_GROUND,
                 font: "14px sans-serif",
                 fillColor: Color.fromCssColorString("#36586d"),
                 showBackground: true,
@@ -254,6 +298,7 @@ export default function MapView({
                   id: s.id,
                   position: Cartesian3.fromDegrees(s.lon, s.lat, 40),
                   point: {
+                    heightReference: HeightReference.RELATIVE_TO_GROUND,
                     pixelSize: 12,
                     color: Color.fromCssColorString("#1263c4"),
                     outlineColor: Color.WHITE,
@@ -261,6 +306,7 @@ export default function MapView({
                     disableDepthTestDistance: Infinity,
                   },
                   label: {
+                    heightReference: HeightReference.RELATIVE_TO_GROUND,
                     text: `${s.name}\n${values.find((o) => o.stationId === s.id)?.elements.temperatureC ?? "—"} °C`,
                     font: "13px sans-serif",
                     fillColor: Color.fromCssColorString("#243244"),
@@ -286,7 +332,7 @@ export default function MapView({
                 rectangle: {
                   coordinates: Rectangle.fromDegrees(...cell.bounds),
                   material: Color.fromCssColorString(palette[bucket]).withAlpha(alpha),
-                  height: 20,
+                  heightReference: HeightReference.CLAMP_TO_GROUND,
                 },
               });
             }
@@ -309,7 +355,7 @@ export default function MapView({
                     material: Color.fromCssColorString(palette[idx]).withAlpha(
                       0.65,
                     ),
-                    height: 5,
+                    heightReference: HeightReference.CLAMP_TO_GROUND,
                   },
                 });
               }
@@ -672,6 +718,7 @@ export default function MapView({
               drawingSource?.entities.removeAll();
               drawingSource?.entities.add({
                 polyline: {
+                  clampToGround: true,
                   positions: Cartesian3.fromDegreesArray(pts.flat()),
                   width: 3,
                   material: Color.CYAN,
@@ -680,6 +727,7 @@ export default function MapView({
               if (drawing.kind === "area" && pts.length >= 3)
                 drawingSource?.entities.add({
                   polygon: {
+                    heightReference: HeightReference.CLAMP_TO_GROUND,
                     hierarchy: new PolygonHierarchy(
                       Cartesian3.fromDegreesArray(pts.flat()),
                     ),
@@ -689,6 +737,7 @@ export default function MapView({
               drawingSource?.entities.add({
                 position: world,
                 label: {
+                  heightReference: HeightReference.CLAMP_TO_GROUND,
                   text:
                     drawing.kind === "distance"
                       ? `${(distanceMeters(pts) / 1000).toFixed(3)} km`
@@ -731,6 +780,15 @@ export default function MapView({
     return () => {
       // 先标记异步流程失效，再停止漫游、卸载图层和销毁 Cesium 输入及 Viewer。
       disposed = true;
+      if (terrainLoadTimer !== undefined) window.clearTimeout(terrainLoadTimer);
+      removeTerrainErrorListener?.();
+      if (
+        activeIonAccessToken &&
+        previousIonAccessToken &&
+        Ion.defaultAccessToken === activeIonAccessToken
+      ) {
+        Ion.defaultAccessToken = previousIonAccessToken;
+      }
       stopCruise?.();
       runtime?.dispose();
       runtimeRef.current = null;

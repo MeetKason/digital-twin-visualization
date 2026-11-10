@@ -133,7 +133,7 @@ digital-twin-visualization/
 
 ## 地图与现场配置
 
-编辑 `apps/web/public/config.json`；Compose 使用 `deploy/config.json` 挂载。地图固定使用天地图卫星影像，不提供矢量或地形晕渲影像切换。`TDT_API_KEY` 保存在服务器 `deploy/.env`，由登录后的 API 配置接口交给浏览器端直连 WMTS；浏览器端 Key 会出现在瓦片请求中，请在天地图控制台限制授权域名。Cesium 真实高程使用 Cesium World Terrain；令牌配置在服务器 `deploy/.env` 的 `CESIUM_ION_ACCESS_TOKEN`，经登录保护且禁止缓存的 API 配置接口按需交给地图，并限制可访问来源和资源权限。不要将任一令牌写入代码、静态配置或仓库。没有天地图 Key 时使用 Cesium 包内低精度本地底图；没有 Cesium ion 令牌或地形服务不可用时，保留平滑椭球并显示地形未加载提示。天地图署名保留。
+编辑 `apps/web/public/config.json`；Compose 使用 `deploy/config.json` 挂载。地图固定使用天地图卫星影像，不提供矢量或地形晕渲影像切换。`TDT_API_KEY` 保存在服务器 `deploy/.env`，由登录后的 API 配置接口交给浏览器端直连 WMTS；浏览器端 Key 会出现在瓦片请求中，请在天地图控制台限制授权域名。Cesium 真实高程使用 Cesium World Terrain；令牌配置在服务器 `deploy/.env` 的 `CESIUM_ION_ACCESS_TOKEN`，经登录保护且禁止缓存的 API 配置接口按需交给地图，并限制可访问站点来源（协议、主机和端口）及资源权限。部署 Nginx 会向跨站 HTTPS 瓦片请求发送来源站点 Origin，供 Cesium ion 域名限制校验。不要将任一令牌写入代码、静态配置或仓库。没有天地图 Key 时使用 Cesium 包内低精度本地底图；没有 Cesium ion 令牌或地形服务不可用时，保留平滑椭球并显示地形未加载提示。天地图署名保留。
 
 内网 XYZ 示例（占位地址需要替换）：
 
