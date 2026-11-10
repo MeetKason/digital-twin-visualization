@@ -47,6 +47,8 @@ export const api = {
 };
 export interface RuntimeConfig {
   mode: "demo";
+  /** 仅由登录后的 API 配置接口下发，供浏览器端 Key 访问天地图。 */
+  tiandituKey?: string;
   basemap: null | {
     type: "xyz" | "wmts" | "tianditu";
     url?: string;
@@ -65,10 +67,10 @@ export async function runtimeConfig(): Promise<RuntimeConfig> {
   const config = (await r.json()) as RuntimeConfig;
   if (config.basemap?.type !== "tianditu") return config;
   const service = await fetch("/api/display-config");
-  const availability = service.ok
-    ? ((await service.json()) as { tiandituAvailable?: boolean })
-    : { tiandituAvailable: false };
-  if (availability.tiandituAvailable) return config;
+  const display = service.ok
+    ? ((await service.json()) as { tiandituKey?: string | null })
+    : { tiandituKey: null };
+  if (display.tiandituKey) return { ...config, tiandituKey: display.tiandituKey };
   return {
     ...config,
     basemap: null,

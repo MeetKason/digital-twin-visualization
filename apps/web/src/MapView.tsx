@@ -67,7 +67,8 @@ export default function MapView({
     currentTime = useRef(time),
     runtimeRef = useRef<LayerRuntime | null>(null),
     viewerRef = useRef<Viewer | null>(null),
-    basemapLayerRef = useRef<ImageryLayer | null>(null);
+    basemapLayerRef = useRef<ImageryLayer | null>(null),
+    tiandituKeyRef = useRef("");
   const [notice, setNotice] = useState("正在初始化本地地图…");
   const [error, setError] = useState("");
   const [tiandituEnabled, setTiandituEnabled] = useState(false);
@@ -78,7 +79,7 @@ export default function MapView({
     const currentViewer = viewerRef.current;
     if (!currentViewer || !tiandituEnabled) return;
     const nextLayer = currentViewer.imageryLayers.addImageryProvider(
-      createTiandituProvider(tiandituLayer(nextType)),
+      createTiandituProvider(tiandituLayer(nextType), tiandituKeyRef.current),
       0,
     );
     const previousLayer = basemapLayerRef.current;
@@ -141,12 +142,13 @@ export default function MapView({
         if (config.basemap) {
           const b = config.basemap;
           if (b.type === "tianditu") {
+            tiandituKeyRef.current = config.tiandituKey ?? "";
             const initialLayer = b.defaultLayer ?? "img_w";
             const initialType = BASEMAP_OPTIONS.find(
               (option) => tiandituLayer(option.key) === initialLayer,
             )?.key ?? DEFAULT_BASEMAP;
             basemapLayerRef.current = v.imageryLayers.addImageryProvider(
-              createTiandituProvider(initialLayer),
+              createTiandituProvider(initialLayer, tiandituKeyRef.current),
               0,
             );
             setBasemapType(initialType);

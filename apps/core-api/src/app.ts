@@ -50,10 +50,10 @@ class ApiController {
           : "development-file",
     };
   }
-  /** 只返回底图服务是否配置，不向浏览器下发天地图密钥。 */
+  /** 将浏览器端天地图 Key 交给已登录的地图页面，供浏览器直连瓦片服务。 */
   @Get("display-config") async displayConfig(@Req() req: Request) {
     await this.p.current(req);
-    return { tiandituAvailable: Boolean(process.env.TDT_API_KEY) };
+    return { tiandituKey: process.env.TDT_API_KEY || null };
   }
   /** 导出低基数 Prometheus 指标；此端点不要求登录，应限制在监控网内。 */
   @Get("metrics") async metrics(
@@ -62,71 +62,6 @@ class ApiController {
     res.setHeader("Content-Type", "text/plain; version=0.0.4; charset=utf-8");
     res.setHeader("Cache-Control", "no-store");
     return renderIngestionMetrics(await this.p.ingestion.metricsSnapshot());
-  }
-  /** 使用服务端密钥代理天地图瓦片，避免 Key 出现在浏览器配置和瓦片 URL 中。 */
-  @Get("maps/tdt/:subdomain/:layer/wmts") async tiandituTile(
-    @Req() req: Request,
-    @Param("subdomain") subdomain: string,
-    @Param("layer") layer: string,
-    @Res() res: ServerResponse,
-  ) {
-    await this.p.current(req);
-    const allowedLayers = new Set(["vec_w", "cva_w", "img_w", "cia_w", "ter_w"]);
-    if (!/^[0-7]$/.test(subdomain) || !allowedLayers.has(layer))
-      throw new BadRequestException("天地图瓦片参数无效");
-    const key = process.env.TDT_API_KEY;
-    if (!key) throw new BadRequestException("服务端尚未配置天地图 Key");
-
-    const incoming = new URL(req.url ?? "/", "http://localhost").searchParams;
-    const allowedParameters = new Set([
-      "SERVICE", "REQUEST", "VERSION", "LAYER", "STYLE", "TILEMATRIXSET",
-      "FORMAT", "TILEMATRIX", "TILEROW", "TILECOL",
-    ]);
-    const parameters = new URLSearchParams();
-    for (const [name, value] of incoming) {
-      if (!allowedParameters.has(name) || value.length > 128)
-        throw new BadRequestException("天地图瓦片查询参数无效");
-      parameters.append(name, value);
-    }
-    if (parameters.get("LAYER") !== layer.slice(0, -2))
-      throw new BadRequestException("天地图图层参数不匹配");
-    parameters.set("tk", key);
-
-    const upstream = `https://t${subdomain}.tianditu.gov.cn/${layer}/wmts?${parameters}`;
-    let response: globalThis.Response;
-    try {
-      response = await fetch(upstream, {
-        signal: AbortSignal.timeout(10000),
-        redirect: "error",
-      });
-    } catch {
-      res.statusCode = 502;
-      res.end("天地图瓦片服务暂不可用");
-      return;
-    }
-    const contentType = response.headers.get("content-type") ?? "";
-    if (!response.ok || !/^image\/(png|jpeg|webp)(;|$)/i.test(contentType)) {
-      res.statusCode = 502;
-      res.end("天地图未返回有效瓦片");
-      return;
-    }
-    const contentLength = Number(response.headers.get("content-length") ?? 0);
-    if (contentLength > 5 * 1024 * 1024) {
-      res.statusCode = 502;
-      res.end("天地图瓦片超过大小限制");
-      return;
-    }
-    const bytes = Buffer.from(await response.arrayBuffer());
-    if (bytes.byteLength > 5 * 1024 * 1024) {
-      res.statusCode = 502;
-      res.end("天地图瓦片超过大小限制");
-      return;
-    }
-    res.statusCode = 200;
-    res.setHeader("Content-Type", contentType);
-    res.setHeader("Cache-Control", "private, max-age=86400");
-    res.setHeader("Content-Length", bytes.byteLength);
-    res.end(bytes);
   }
   @Get("auth/session") async session(
     @Req() req: Request,

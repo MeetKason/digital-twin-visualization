@@ -4,7 +4,7 @@ import {
   type ImageryProvider,
 } from "cesium";
 
-/** 通过同源 API 代理访问天地图，浏览器请求中不携带服务端 Key。 */
+/** 天地图浏览器端 WMTS 图层代码。 */
 export type TiandituLayer = "vec_w" | "cva_w" | "img_w" | "cia_w" | "ter_w";
 
 export type BasemapType = "img" | "vec" | "ter";
@@ -22,12 +22,12 @@ export function tiandituLayer(type: BasemapType): TiandituLayer {
 }
 
 /** 为 WMTS 图层创建 EPSG:3857 瓦片 Provider，并保留天地图署名。 */
-export function createTiandituProvider(layer: TiandituLayer): ImageryProvider {
+export function createTiandituProvider(layer: TiandituLayer, key: string): ImageryProvider {
   const layerName = layer.slice(0, -2);
   const url =
-    `/api/maps/tdt/{s}/${layer}/wmts` +
+    `https://t{s}.tianditu.gov.cn/${layer}/wmts` +
     `?SERVICE=WMTS&REQUEST=GetTile&VERSION=1.0.0&LAYER=${layerName}` +
-    "&STYLE=default&TILEMATRIXSET=w&FORMAT=tiles" +
+    `&STYLE=default&TILEMATRIXSET=w&FORMAT=tiles&tk=${encodeURIComponent(key)}` +
     "&TILEMATRIX={z}&TILEROW={y}&TILECOL={x}";
   return new UrlTemplateImageryProvider({
     url,
