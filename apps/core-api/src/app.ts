@@ -51,9 +51,16 @@ class ApiController {
     };
   }
   /** 将浏览器端天地图 Key 交给已登录的地图页面，供浏览器直连瓦片服务。 */
-  @Get("display-config") async displayConfig(@Req() req: Request) {
+  @Get("display-config") async displayConfig(
+    @Req() req: Request,
+    @Res({ passthrough: true }) res: ServerResponse,
+  ) {
     await this.p.current(req);
-    return { tiandituKey: process.env.TDT_API_KEY || null };
+    res.setHeader("Cache-Control", "no-store");
+    return {
+      tiandituKey: process.env.TDT_API_KEY || null,
+      cesiumIonAccessToken: process.env.CESIUM_ION_ACCESS_TOKEN || null,
+    };
   }
   /** 导出低基数 Prometheus 指标；此端点不要求登录，应限制在监控网内。 */
   @Get("metrics") async metrics(

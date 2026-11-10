@@ -49,6 +49,8 @@ export interface RuntimeConfig {
   mode: "demo";
   /** 仅由登录后的 API 配置接口下发，供浏览器端 Key 访问天地图。 */
   tiandituKey?: string;
+  /** 仅由登录后的 API 配置接口按需下发，供 Cesium 请求 ion 地形。 */
+  cesiumIonAccessToken?: string;
   basemap: null | {
     type: "xyz" | "wmts" | "tianditu";
     url?: string;
@@ -65,14 +67,21 @@ export async function runtimeConfig(): Promise<RuntimeConfig> {
   const r = await fetch("/config.json");
   if (!r.ok) throw new Error("无法读取地图配置");
   const config = (await r.json()) as RuntimeConfig;
-  if (config.basemap?.type !== "tianditu") return config;
-  const service = await fetch("/api/display-config");
+  const service = await fetch("/api/display-config", { cache: "no-store" });
   const display = service.ok
-    ? ((await service.json()) as { tiandituKey?: string | null })
-    : { tiandituKey: null };
-  if (display.tiandituKey) return { ...config, tiandituKey: display.tiandituKey };
-  return {
+    ? ((await service.json()) as {
+        tiandituKey?: string | null;
+        cesiumIonAccessToken?: string | null;
+      })
+    : { tiandituKey: null, cesiumIonAccessToken: null };
+  const runtime = {
     ...config,
+    tiandituKey: display.tiandituKey ?? undefined,
+    cesiumIonAccessToken: display.cesiumIonAccessToken ?? undefined,
+  };
+  if (config.basemap?.type !== "tianditu" || display.tiandituKey) return runtime;
+  return {
+    ...runtime,
     basemap: null,
     notice: "未配置天地图 Key · 当前使用本地低精度底图",
   };

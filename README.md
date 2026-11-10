@@ -85,23 +85,55 @@ npm run test:postgres  # 需要 Docker；临时 PostgreSQL 16 容器验证，结
 
 ## 工程结构
 
-| 目录 | 职责 |
+下面的目录树只列出主要源代码、配置和维护文档；`node_modules`、构建产物、临时报告和运行数据均未列出。
+
+```text
+digital-twin-visualization/
+├── apps/                         # 可独立运行的前端、API 与后台任务进程
+│   ├── web/                      # React 地图工作台、Cesium 地图与静态资源
+│   │   ├── src/                  # 页面、地图交互、接口客户端和样式
+│   │   └── public/               # 运行配置、图标、扩展目录和 Cesium 静态资源
+│   ├── core-api/                 # NestJS API、认证授权、业务与数据访问
+│   │   └── src/                  # 控制器、平台服务和持久化实现
+│   └── worker/                   # PostgreSQL 任务队列后台执行进程
+│       └── src/
+├── packages/                     # 前端、API 与 Worker 共用的领域模块
+│   ├── contracts/                # 场景、站点、图层和观测数据契约
+│   ├── ingestion/                # 采集任务、连接器、仓库和指标
+│   ├── sdk/                      # 地图扩展接口与图层运行时
+│   └── plugins/                  # 示例插件及其构建入口
+├── scenarios/                    # 西安、太原、成都等地区的演示场景
+├── deploy/                       # Docker、Compose、Nginx 与服务器配置模板
+│   ├── migrations/               # PostgreSQL/PostGIS 数据库迁移
+│   ├── tianqing/                 # 天擎数据源配置示例
+│   ├── auth/                     # 服务器账号配置目录（不提交真实账号）
+│   └── README-offline.md         # 离线安装、升级与回滚手册
+├── scripts/                      # 账号、迁移、备份恢复、打包和部署验证工具
+├── tests/                        # 单元、契约及端到端测试
+├── docs/                         # 架构、性能、计划和验收记录
+├── package.json                  # npm 工作区、开发和构建命令
+└── README.md                     # 项目说明与开发、部署入口
+```
+
+主要调用关系：`apps/web` 通过同源 HTTP API 调用 `apps/core-api`；API 与 `apps/worker` 共用 `packages/contracts`、`packages/ingestion` 等模块；Worker 从 PostgreSQL 队列领取采集任务，再通过连接器写入观测数据；地图与专题页面通过 API 查询场景、站点、图层和观测。`deploy/compose.yaml` 将 Web、API、Worker 和 PostgreSQL 组合为服务器部署单元。
+
+| 路径 | 职责 |
 | --- | --- |
-| apps/web | Figma 登录与地图工作台，Cesium、本地资源 |
-| apps/core-api | NestJS 认证、租户/角色/场景授权、业务持久化与审计 |
-| apps/worker | PostgreSQL 持久队列执行入口与优雅退出 |
-| packages/ingestion | 逐小时任务状态机、文件/PG仓库、Mock连接器、租约/重试/取消与原子入库 |
-| packages/contracts | 场景 schema、图层、站点、观测契约与演示数据 |
-| packages/sdk | 受控地图接口、可取消图层生命周期、插件安装卸载 |
-| packages/plugins | 可独立构建的 station.popup 插槽插件样例 |
-| scenarios | 西安、太原、成都三个示例地区配置 |
-| deploy | Compose、Dockerfile、Nginx、PostGIS 迁移 |
-| scripts | 数据库与文件成套备份/恢复、隔离 Compose 验证、离线镜像导出 |
-| docs | 已批准建设范围、实施计划与验证记录 |
+| `apps/web` | React 地图工作台、Cesium 可视化和浏览器端资源 |
+| `apps/core-api` | NestJS 身份认证、租户/角色/场景授权、业务持久化与审计 |
+| `apps/worker` | PostgreSQL 持久任务队列的后台执行入口与优雅退出 |
+| `packages/ingestion` | 逐小时采集状态机、文件/数据库仓库、Mock 连接器、租约、重试、取消与原子入库 |
+| `packages/contracts` | 场景结构、图层、站点、观测数据契约与演示数据 |
+| `packages/sdk` | 受控地图接口、可取消图层生命周期和插件安装/卸载 |
+| `packages/plugins` | 可独立构建的站点弹窗插槽插件示例 |
+| `scenarios` | 西安、太原、成都等示例地区配置 |
+| `deploy` | Compose、Dockerfile、Nginx、PostGIS 迁移与部署手册 |
+| `scripts` | 数据库和文件成套备份/恢复、隔离部署验证及离线镜像导出 |
+| `docs` | 已批准建设范围、实施计划、性能与验收记录 |
 
 ## 地图与现场配置
 
-编辑 `apps/web/public/config.json`；Compose 使用 `deploy/config.json` 挂载。默认使用天地图影像底图，可在地图右下角切换矢量图、卫星图和地形晕渲。`TDT_API_KEY` 保存在服务器 `deploy/.env`，由登录后的 API 配置接口交给浏览器端直连 WMTS（符合浏览器端 Key 的权限类型）。浏览器端 Key 会出现在地图瓦片请求中，请在天地图控制台限制授权域名；不要将 Key 写入代码或公开配置文件。未配置 Key 时回退到 Cesium 包内 NaturalEarthII 低精度本地底图。天地图署名保留；当前不使用 Cesium ion。
+编辑 `apps/web/public/config.json`；Compose 使用 `deploy/config.json` 挂载。地图固定使用天地图卫星影像，不提供矢量或地形晕渲影像切换。`TDT_API_KEY` 保存在服务器 `deploy/.env`，由登录后的 API 配置接口交给浏览器端直连 WMTS；浏览器端 Key 会出现在瓦片请求中，请在天地图控制台限制授权域名。Cesium 真实高程使用 Cesium World Terrain；令牌配置在服务器 `deploy/.env` 的 `CESIUM_ION_ACCESS_TOKEN`，经登录保护且禁止缓存的 API 配置接口按需交给地图，并限制可访问来源和资源权限。不要将任一令牌写入代码、静态配置或仓库。没有天地图 Key 时使用 Cesium 包内低精度本地底图；没有 Cesium ion 令牌或地形服务不可用时，保留平滑椭球并显示地形未加载提示。天地图署名保留。
 
 内网 XYZ 示例（占位地址需要替换）：
 
@@ -147,8 +179,8 @@ WMTS 使用 `type: "wmts"` 并配置 `url, layer, style, format, tileMatrixSetID
 ```bash
 cp deploy/tianqing/sources.example.json deploy/tianqing/sources.json
 chmod 600 deploy/tianqing/sources.json
-# 编辑对应 scene：enabled=true，并替换 endpoint、userId、password、regionCode。
-# credentials、真实地址仅保存在服务器配置；更新后重启 API 与 Worker。
+# 编辑对应场景：将 enabled 设为 true，并替换 endpoint、userId、password、regionCode。
+# 账号凭据和真实地址仅保存在服务器配置；更新后重启 API 与 Worker。
 ```
 
 `sources.json` 已加入 Git 和 Docker 构建忽略规则，Compose 只读挂载到 API/Worker。每个 profile 配置 `interfaceId/dataCode/elements`、时间和区划参数、limitCnt、时区、空值标记及天擎字段到标准观测字段的映射。示例 profile 使用文档中的 `getSurfEleInRegionByTime / SURF_CHN_MUL_HOR`；上线前必须按局方账号实际返回的字段字典核对 `Datetime/Lon/Lat/TEM/PRE_1H/WIN_S_2MI`。一个任务只请求配置的小时点时次。
