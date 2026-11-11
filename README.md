@@ -377,3 +377,5 @@ ctx.stationProviders.register(
 可复制[独立后端模板](extensions/backend-template/README.md)到客户扩展仓库；它有独立Dockerfile、Compose、健康检查和服务账号认证，不依赖新增npm包。默认读取宿主受限服务账号的地面小时产品，现场只替换适配方法即可接入客户接口。服务仅接入内部网络；在宿主core-api的Compose `environment`中显式注入映射使用的tokenEnv变量，单独写在`.env`不会自动传入容器。完整运行示例与限制见模板说明。
 
 后续升级仍需上轮007配置表迁移，许可证复用该表，不新增数据库迁移。更新API、Worker和Web，挂载一致的许可证公钥，并先配置平台管理员；本轮未部署、未改服务器环境，也没有生成真实客户许可证。
+
+部署默认使用外部直连核验。若执行环境在部署前就无法直连目标高端口，可显式使用`DTV_VERIFY_TRANSPORT=server-public bash scripts/deploy-server.sh`，由服务器通过自身公网IP核验Web/API版本，并另行通过SSH隧道验证登录与功能。此模式记录为`server-public-verified`，不会写入表示外部入站通过的`public-verified`；必须在部署报告中注明外部访问尚未确认，不能当作已完成云安全组/客户端网络验收。默认外部核验失败仍会完整回退三项服务。

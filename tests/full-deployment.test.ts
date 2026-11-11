@@ -154,3 +154,22 @@ test("全栈预检成功更新三服务，公网失败可调用同一入口完�
     await f.cleanup();
   }
 });
+
+test("服务器公网路径确认不会伪装成外部入站验收", async () => {
+  const f = await fixture("success");
+  try {
+    await f.run();
+    await exec(
+      "bash",
+      ["scripts/deploy-platform-remote.sh", "finalize", commit],
+      { env: { ...f.env, DTV_VERIFICATION_SCOPE: "server-public" } },
+    );
+    await access(join(f.root, "releases", commit, "deployment-confirmed"));
+    await access(join(f.root, "releases", commit, "server-public-verified"));
+    await expect(
+      access(join(f.root, "releases", commit, "public-verified")),
+    ).rejects.toThrow();
+  } finally {
+    await f.cleanup();
+  }
+});

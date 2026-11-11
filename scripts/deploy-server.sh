@@ -9,6 +9,9 @@ commit="$(git rev-parse HEAD)"
 target="${DTV_SSH_TARGET:-ubuntu@162.14.107.55}"; port="${DTV_SSH_PORT:-22}"
 remote="${DTV_REMOTE_DIR:-/home/ubuntu/dtv-visualization}"; project="${DTV_COMPOSE_PROJECT_NAME:-dtv}"
 public="${DTV_PUBLIC_HEALTH_URL:-http://162.14.107.55:18087}"
+transport="${DTV_VERIFY_TRANSPORT:-external}"
+[[ "$transport" == external || "$transport" == server-public ]] || exit 2
+[[ "$public" =~ ^https?://[A-Za-z0-9._:-]+$ ]] || exit 2
 [[ "$remote" =~ ^/[A-Za-z0-9._/-]+$ && "$project" =~ ^[A-Za-z0-9_-]+$ ]] || exit 2
 context="$(mktemp -d "${TMPDIR:-/tmp}/dtv-full-deploy.XXXXXX")"
 # 从固定提交的隔离快照构建，既不读取开发中的代码，也不回写生成签名文件。
@@ -87,9 +90,14 @@ if ! ssh -p "$port" "$target" "DTV_REMOTE_DIR='$remote' DTV_COMPOSE_PROJECT_NAME
  exit 1
 fi
 # 公网失败走相同三服务回退入口，不能只恢复Web造成前后端版本不匹配。
-if ! curl -fsS --max-time 15 "$public/deploy-version.json" | grep -Fq "$commit" || ! curl -fsS --max-time 15 "$public/api/health" | grep -Fq "$commit"; then
+verify_endpoint() {
+ if [[ "$transport" == external ]]; then curl -fsS --max-time 15 "$public/$1";
+ else ssh -p "$port" "$target" "curl -fsS --max-time 15 '$public/$1'"; fi
+}
+if ! verify_endpoint deploy-version.json | grep -Fq "$commit" || ! verify_endpoint api/health | grep -Fq "$commit"; then
  ssh -p "$port" "$target" "DTV_REMOTE_DIR='$remote' DTV_COMPOSE_PROJECT_NAME='$project' bash '$remote_script' rollback '$commit'"
  exit 1
 fi
-ssh -p "$port" "$target" "DTV_REMOTE_DIR='$remote' DTV_COMPOSE_PROJECT_NAME='$project' bash '$remote_script' finalize '$commit'"
+ssh -p "$port" "$target" "DTV_REMOTE_DIR='$remote' DTV_COMPOSE_PROJECT_NAME='$project' DTV_VERIFICATION_SCOPE='$transport' bash '$remote_script' finalize '$commit'"
+echo "验收路径：${transport}（server-public不代表外部入站已确认）"
 echo "全栈部署成功：${public}；提交 $commit"

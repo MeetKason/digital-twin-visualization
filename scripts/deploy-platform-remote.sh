@@ -34,11 +34,20 @@ restore() {
  echo '已恢复旧Web/API/Worker；数据库及文件卷保留。' >&2
 }
 if [[ "$mode" == recover ]]; then
- if [[ -f "$root/.pending-deploy" && "$(cat "$root/.pending-deploy")" == "$commit" && ! -f "$release/public-verified" && ! -f "$release/rolled-back" ]]; then restore; else check_live; fi
+ if [[ -f "$root/.pending-deploy" && "$(cat "$root/.pending-deploy")" == "$commit" && ! -f "$release/deployment-confirmed" && ! -f "$release/rolled-back" ]]; then restore; else check_live; fi
  exit $?
 fi
 if [[ "$mode" == rollback ]]; then cleanup_probe; restore; exit $?; fi
-if [[ "$mode" == finalize ]]; then check_live "$commit"; touch "$release/public-verified"; [[ ! -f "$root/.pending-deploy" || "$(cat "$root/.pending-deploy")" != "$commit" ]] || rm "$root/.pending-deploy"; exit 0; fi
+if [[ "$mode" == finalize ]]; then
+ check_live "$commit"
+ scope="${DTV_VERIFICATION_SCOPE:-external}"
+ [[ "$scope" == external || "$scope" == server-public ]] || exit 2
+ if [[ "$scope" == external ]]; then touch "$release/public-verified"; else touch "$release/server-public-verified"; fi
+ printf '%s\n' "$scope" > "$release/verification-scope"
+ touch "$release/deployment-confirmed"
+ [[ ! -f "$root/.pending-deploy" || "$(cat "$root/.pending-deploy")" != "$commit" ]] || rm "$root/.pending-deploy"
+ exit 0
+fi
 [[ -s "$payload/compose.yaml" && -s "$payload/migrations/007_runtime_configuration.sql" && -s "$payload/licensing/trust-roots.json" ]] || { echo '发布文件不完整' >&2; exit 2; }
 [[ ! -e "$backup" ]] || { echo '本次发布已有备份，不覆盖原备份；请检查现有发布状态' >&2; exit 2; }
 check_live || { echo '现有服务不健康，拒绝发布' >&2; exit 1; }
