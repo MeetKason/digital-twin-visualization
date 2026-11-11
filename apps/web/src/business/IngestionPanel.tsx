@@ -1,3 +1,4 @@
+import { sessionFetch } from "../sessionRequest";
 import { useEffect, useRef, useState } from "react";
 import {
   Alert,
@@ -43,6 +44,7 @@ interface IngestionProductOption {
   id: string;
   label: string;
   available: boolean;
+  disabledReason?: string;
   dependencies: string[];
 }
 async function json<T>(
@@ -51,7 +53,7 @@ async function json<T>(
   method = "GET",
   body?: unknown,
 ): Promise<T> {
-  const res = await fetch(url, {
+  const res = await sessionFetch(url, {
     signal,
     method,
     headers:
@@ -220,6 +222,7 @@ export function IngestionPanel({
     }
   }
   const writable = role === "admin" || role === "editor";
+  const productReady = products.find((product) => product.id === productId)?.available === true;
   const jobColumns: TableColumnsType<IngestionJob> = [
     {
       title: "时次区间（北京时间）",
@@ -291,7 +294,7 @@ export function IngestionPanel({
           {job.status === "failed" && (
             <Button
               size="small"
-              disabled={busy || !writable}
+              disabled={busy || !writable || !productReady}
               onClick={() => void action(`/jobs/${job.id}/retry`, "POST")}
             >
               重试任务
@@ -337,13 +340,14 @@ export function IngestionPanel({
       <label className="ingestion-product-control">
         采集产品
         <Select
+          aria-label="采集产品"
           value={productId}
           disabled={busy}
           onChange={setProductId}
           options={products.map((product) => ({
             value: product.id,
-            label: `${product.label}${product.available ? "" : "（未接入）"}`,
-            disabled: !product.available,
+            label: `${product.label}${product.available ? "" : `（${product.disabledReason ?? "未接入"}）`}`,
+            disabled: !product.available && !product.disabledReason,
           }))}
         />
       </label>
@@ -352,7 +356,7 @@ export function IngestionPanel({
         <Alert
           type="warning"
           showIcon
-          message="该产品尚无可用连接器，不能创建采集任务或启用计划。"
+          message={products.find((product) => product.id === productId)?.disabledReason ? "该产品未在场景中启用，仅可查看任务或停用已有计划。" : "该产品尚无可用连接器，不能创建采集任务或启用计划。"}
         />
       )}
       <p className="data-disclaimer">
@@ -428,8 +432,7 @@ export function IngestionPanel({
             busy ||
             role !== "admin" ||
             !status ||
-            products.find((product) => product.id === productId)?.available ===
-              false
+            (!productReady && !status?.schedule.enabled)
           }
           checked={status?.schedule.enabled ?? false}
           onChange={(checked) =>
@@ -443,7 +446,7 @@ export function IngestionPanel({
       </p>
       <Button
         type="primary"
-        disabled={busy || !writable || !status}
+        disabled={busy || !writable || !status || !productReady}
         onClick={() => {
           const time = new Date(
             Math.floor(Date.now() / hour) * hour,
@@ -494,7 +497,7 @@ export function IngestionPanel({
         <Button
           type="primary"
           htmlType="submit"
-          disabled={busy || !writable || !status}
+          disabled={busy || !writable || !status || !productReady}
         >
           提交补数任务
         </Button>
@@ -521,7 +524,7 @@ export function IngestionPanel({
             locale={{ emptyText: "暂无采集任务" }}
           />
           <Button
-            disabled={!status.watermark || busy}
+            disabled={!status.watermark || busy || !productReady}
             onClick={() => {
               setBusy(true);
               setError("");

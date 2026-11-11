@@ -1,0 +1,21 @@
+# 仅为独立扩展示例；凭据从现场环境注入，不向公网暴露端口。
+services:
+  customer-extension:
+    build: .
+    environment:
+      CORE_API_URL: http://core-api:3001
+      CORE_API_USERNAME: ${CORE_API_USERNAME:?set CORE_API_USERNAME}
+      CORE_API_PASSWORD: ${CORE_API_PASSWORD:?set CORE_API_PASSWORD}
+      EXTENSION_TENANT_ID: ${EXTENSION_TENANT_ID:?set EXTENSION_TENANT_ID}
+      EXTENSION_ACCESS_TOKEN: ${EXTENSION_ACCESS_TOKEN:?set EXTENSION_ACCESS_TOKEN}
+    expose: ["3100"]
+    read_only: true
+    cap_drop: [ALL]
+    restart: unless-stopped
+    logging:
+      driver: json-file
+      options: {max-size: "10m", max-file: "3"}
+networks:
+  default:
+    external: true
+    name: ${EXTENSION_NETWORK:-digital-twin-visualization_default}

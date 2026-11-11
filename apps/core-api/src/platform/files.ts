@@ -120,6 +120,22 @@ export class FileStore {
       if (temp) await rm(temp, { recursive: true, force: true });
     }
   }
+  /** 仅由隔离演示初始化调用，仍按真实文件规则校验并原子写入私有目录。 */
+  async storeDemoFile(tenant: string, scene: string, file: File): Promise<StoredFile> {
+    if (!/^Mock-[^/\\]+\.(gltf|pdf|webm)$/.test(file.name) || file.size > 1024 * 1024)
+      throw new BadRequestException("演示文件名称或大小无效");
+    const type = await validateUpload(file);
+    const dir = this.scope(tenant, scene);
+    await mkdir(dir, { recursive: true, mode: 0o700 });
+    const temp = await mkdtemp(join(dir, ".upload-"));
+    try {
+      const meta: StoredFile = { id: `srv_${randomUUID()}`, name: file.name, size: file.size, type };
+      await writeFile(join(temp, "content"), Buffer.from(await file.arrayBuffer()), { mode: 0o600 });
+      await writeFile(join(temp, "meta.json"), JSON.stringify(meta), { mode: 0o600 });
+      await rename(temp, this.path(tenant, scene, meta.id));
+      return meta;
+    } finally { await rm(temp, { recursive: true, force: true }); }
+  }
   async list(tenant: string, scene: string) {
     let ids: string[];
     try {

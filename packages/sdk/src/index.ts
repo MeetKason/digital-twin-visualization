@@ -104,6 +104,30 @@ export interface MapFacade {
 }
 export interface PlatformContext {
   apiVersion: string;
+  scene: { id: string; center: [number, number] };
+  routes: {
+    register(value: import("./extensions").RouteExtension): () => void;
+  };
+  widgets: {
+    register(value: import("./extensions").WidgetExtension): () => void;
+  };
+  stationProviders: {
+    register(
+      value: import("./extensions").StationProviderDescriptor,
+      provide: (query: {
+        sceneId: string;
+        time: string;
+        signal: AbortSignal;
+      }) => Promise<import("@dtv/contracts").DataFrame>,
+    ): () => void;
+  };
+  data: {
+    read(
+      productId: string,
+      time: string,
+      signal?: AbortSignal,
+    ): Promise<import("@dtv/contracts").DataFrame>;
+  };
   map: MapFacade;
   layers: { register(layer: LayerDescriptor): () => void };
   slots: { register(id: string, value: unknown): () => void };
@@ -198,3 +222,5 @@ export interface MapFacade {
     heading: number,
   ): () => void;
 }
+
+export * from "./extensions";

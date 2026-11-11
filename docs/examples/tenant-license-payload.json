@@ -1,0 +1,15 @@
+{
+  "formatVersion": 1,
+  "licenseId": "customer-a-20261111-001",
+  "tenantId": "customer-a",
+  "customer": "演示客户",
+  "project": { "id": "weather-project", "name": "气象数字孪生项目" },
+  "plan": "enterprise",
+  "issuedAt": "2026-11-11T00:00:00Z",
+  "notBefore": "2026-11-11T00:00:00Z",
+  "expiresAt": "2027-11-11T00:00:00Z",
+  "modules": ["map", "stations", "weather", "roam", "devices", "files", "plugins", "ingestion"],
+  "datasets": ["stations", "surface-hourly", "radar-grid", "satellite-cloud", "wind-field", "humidity-field", "forecast-hourly", "grid-analysis", "warning-range", "environment-simulation"],
+  "regions": ["xian", "taiyuan"],
+  "maxAccounts": 20
+}

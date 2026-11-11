@@ -69,3 +69,10 @@ it("坐标的经度纬度必须都有值，重复 query 参数不能引发 500",
     "搜索",
   );
 });
+
+it("Mock预报给出同一有效时间的起报和时效，风场携带气象来向", () => {
+  const service = new DemoService();
+  const frame = service.data("forecast", "xian", service.times("forecast")[12]);
+  expect(frame.forecast).toEqual({ referenceTime: "2026-11-06T16:00:00.000Z", validTime: "2026-11-07T04:00:00.000Z", leadHours: 12 });
+  expect(service.data("wind", "xian", service.times("wind")[0]).gridCells!.every((cell) => cell.directionDeg != null && cell.directionDeg >= 0 && cell.directionDeg <= 360)).toBe(true);
+});

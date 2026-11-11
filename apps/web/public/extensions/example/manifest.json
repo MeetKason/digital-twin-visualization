@@ -3,7 +3,7 @@
   "version": "1.0.0",
   "coreApi": 1,
   "entry": "/extensions/example/index.js",
-  "integrity": "sha256-hTDU4xCS+7BlhtPyOjLq4fZCXrQsmwTtK7WkwGqeyMM=",
+  "integrity": "sha256-l0FBjYzlJtt8lYRxgWmWHYAyhpPUe8GpbpfLK7nDIsA=",
   "keyId": "build-root",
-  "signature": "xtHa5TiKP9NgclXFAjNat6PaTPs49NeUxV4NLo2BsGwj9ekF761B5MIG5TSF0G7Yfu86prd0/hja9UZqea8VDg=="
+  "signature": "q2/5JAurmRCxcwd6LVHC05agXZu6n9iY/P0jjDvhz84DdM6wXY3VqLqXG2hCAZvO7FyqE032fRVjZvwF9Gk/AA=="
 }

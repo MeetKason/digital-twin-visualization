@@ -1,3 +1,5 @@
+import { rasterizeWeather, windGlyphs } from "./weatherRendering";
+import { ImageryRecovery } from "./imageryRecovery";
 import { UiButton } from "./ui/controls";
 import { useEffect, useRef, useState } from "react";
 import { Alert } from "antd";
@@ -20,6 +22,8 @@ import {
   Rectangle,
   ConstantProperty,
   ColorMaterialProperty,
+  ImageMaterialProperty,
+  PolylineArrowMaterialProperty,
   Cartesian2,
   LabelStyle,
   VerticalOrigin,
@@ -36,7 +40,12 @@ import {
   CreditDisplay,
 } from "cesium";
 import "cesium/Build/Cesium/Widgets/widgets.css";
-import type { SceneConfig, Station, LayerDescriptor } from "@dtv/contracts";
+import type {
+  SceneConfig,
+  Station,
+  LayerDescriptor,
+  DataFrame,
+} from "@dtv/contracts";
 import { LayerRuntime, type LayerHandle, type MapFacade } from "@dtv/sdk";
 import { api, runtimeConfig } from "./api";
 import { distanceMeters, areaMeters, type Coordinate } from "@dtv/contracts";
@@ -52,6 +61,12 @@ interface Props {
   dataRevision?: number;
   onReady: (runtime: LayerRuntime, map: MapFacade) => void;
   onStation: (station: Station) => void;
+  resolvePluginFrame?: (
+    id: string,
+    time: string,
+    signal: AbortSignal,
+  ) => Promise<DataFrame | null>;
+  onFrame?: (id: string, frame: DataFrame) => void;
 }
 export default function MapView({
   scene,
@@ -61,7 +76,14 @@ export default function MapView({
   dataRevision = 0,
   onReady,
   onStation,
+  onFrame,
+  resolvePluginFrame,
 }: Props) {
+  const pluginFrame = useRef(resolvePluginFrame);
+  pluginFrame.current = resolvePluginFrame;
+  const previousLayerIds = useRef(new Set(layers.map((layer) => layer.id)));
+  const frameCallback = useRef(onFrame);
+  frameCallback.current = onFrame;
   const latestStations = useRef(stations),
     latestLayers = useRef(layers);
   latestStations.current = stations;
@@ -71,11 +93,16 @@ export default function MapView({
     runtimeRef = useRef<LayerRuntime | null>(null),
     viewerRef = useRef<Viewer | null>(null);
   const [error, setError] = useState("");
+  const [moving, setMoving] = useState(false);
+  const [cameraRevision, setCameraRevision] = useState(0);
   currentTime.current = time;
   // 地图引擎只在地图组件挂载时加载；场景切换和卸载必须销毁 Viewer 与图层资源。
   useEffect(() => {
     let disposed = false;
+    const lifecycle = new AbortController();
+    let disposeTerrain: (() => void) | undefined;
     let viewer: Viewer | undefined;
+    const removeCameraListeners: Array<() => void> = [];
     let runtime: LayerRuntime | undefined;
     let handler: ScreenSpaceEventHandler | undefined;
     let removeTerrainErrorListener: (() => void) | undefined;
@@ -94,7 +121,7 @@ export default function MapView({
     // Cesium 与本地运行配置异步初始化；未完成前卸载时不再创建浏览器资源。
     const initialize = async () => {
       try {
-        const config = await runtimeConfig();
+        const config = await runtimeConfig(lifecycle.signal);
         if (disposed || !container.current) return;
         // 默认地图不调用 Cesium ion，因此移除 Cesium 自动添加的 ion 品牌标识。
         // 数据源自己的版权署名仍走 CreditDisplay；若后续真正接入 ion，ion 返回的署名会再次显示。
@@ -119,6 +146,19 @@ export default function MapView({
         });
         const v = viewer;
         viewerRef.current = v;
+        removeCameraListeners.push(
+          v.camera.moveStart.addEventListener(() => {
+            if (!disposed) setMoving(true);
+          }),
+        );
+        removeCameraListeners.push(
+          v.camera.moveEnd.addEventListener(() => {
+            if (!disposed) {
+              setMoving(false);
+              setCameraRevision((value) => value + 1);
+            }
+          }),
+        );
         v.scene.globe.baseColor = Color.fromCssColorString("#d9e6dd");
         v.scene.backgroundColor = Color.fromCssColorString("#d9e5ed");
         v.scene.globe.enableLighting = true;
@@ -143,10 +183,15 @@ export default function MapView({
           const b = config.basemap;
           if (b.type === "tianditu") {
             const provider = createTiandituProvider(config.tiandituKey ?? "");
-            const tiandituLayer = v.imageryLayers.addImageryProvider(provider, 0);
+            const tiandituLayer = v.imageryLayers.addImageryProvider(
+              provider,
+              0,
+            );
             let imageryFailedOver = false;
+            const recovery = new ImageryRecovery();
             provider.errorEvent.addEventListener((tileError) => {
               if (disposed || imageryFailedOver || tileError.retry) return;
+              if (recovery.record(tileError) !== "fallback") return;
               imageryFailedOver = true;
               void TileMapServiceImageryProvider.fromUrl(
                 "/cesium/Assets/Textures/NaturalEarthII",
@@ -161,7 +206,9 @@ export default function MapView({
                 })
                 .catch(() => {
                   if (!disposed) {
-                    setError("天地图影像和本地底图均无法加载，请检查网络连接后重试");
+                    setError(
+                      "天地图影像和本地底图均无法加载，请检查网络连接后重试",
+                    );
                   }
                 });
             });
@@ -214,11 +261,15 @@ export default function MapView({
             try {
               let terrainPromise: Promise<TerrainProvider>;
               if (useTiandituTerrain) {
-                terrainPromise = Promise.resolve(
-                  createTiandituTerrainProvider(config.tiandituKey!),
+                const terrain = createTiandituTerrainProvider(
+                  config.tiandituKey!,
                 );
+                disposeTerrain = () => terrain.dispose();
+                terrainPromise = Promise.resolve(terrain);
               } else if (config.terrainUrl) {
-                terrainPromise = CesiumTerrainProvider.fromUrl(config.terrainUrl);
+                terrainPromise = CesiumTerrainProvider.fromUrl(
+                  config.terrainUrl,
+                );
               } else {
                 const token = config.cesiumIonAccessToken;
                 if (!token) throw new Error("未配置 Cesium ion 令牌");
@@ -234,8 +285,12 @@ export default function MapView({
                   15000,
                 );
               });
-              const terrain = await Promise.race([terrainPromise, terrainTimeout]);
-              if (terrainLoadTimer !== undefined) window.clearTimeout(terrainLoadTimer);
+              const terrain = await Promise.race([
+                terrainPromise,
+                terrainTimeout,
+              ]);
+              if (terrainLoadTimer !== undefined)
+                window.clearTimeout(terrainLoadTimer);
               terrainLoadTimer = undefined;
               if (disposed || v.isDestroyed()) return;
               let terrainWarningShown = false;
@@ -250,17 +305,22 @@ export default function MapView({
                   if (terrainWarningShown) return;
                   terrainWarningShown = true;
                   // 局部缺瓦由父级地形覆盖，仅记录诊断信息，不弹出干扰地图浏览的提示。
-                  console.warn(`${providerName}局部地形瓦片暂不可用，保留其余地形`);
+                  console.warn(
+                    `${providerName}局部地形瓦片暂不可用，保留其余地形`,
+                  );
                 },
               );
               v.terrainProvider = terrain;
               v.scene.globe.depthTestAgainstTerrain = true;
             } catch {
-              if (terrainLoadTimer !== undefined) window.clearTimeout(terrainLoadTimer);
+              if (terrainLoadTimer !== undefined)
+                window.clearTimeout(terrainLoadTimer);
               terrainLoadTimer = undefined;
               if (disposed) return;
               setEllipsoidFallback();
-              setError(`${providerName}真实地形加载失败，请检查令牌、授权范围和网络连接`);
+              setError(
+                `${providerName}真实地形加载失败，请检查令牌、授权范围和网络连接`,
+              );
             }
           })();
         }
@@ -272,37 +332,85 @@ export default function MapView({
           if (!descriptor) throw new Error("图层不存在");
           if (!descriptor.available)
             throw new Error(descriptor.reason ?? "未接入数据");
-          const frame = id === "boundary" ? null : await api.data(
-            id,
-            scene.id,
-            currentTime.current,
-            signal,
-          );
+          const customFrame = id.includes(".")
+            ? await pluginFrame.current?.(id, currentTime.current, signal)
+            : null;
+          if (id.includes(".") && !customFrame)
+            throw new Error("插件Provider不可用");
+          const frame =
+            id === "boundary"
+              ? null
+              : (customFrame ??
+                (await api.data(id, scene.id, currentTime.current, signal)));
           if (signal.aborted || disposed) throw new Error("加载已取消");
           const source = new CustomDataSource(id);
+          let rasterCanvas: HTMLCanvasElement | undefined;
           const [lon, lat] = scene.center;
-          const palette = id === "radar"
-            ? ["#2775cb", "#27a6b8", "#51bb54", "#e5d63a", "#ee6338", "#b82844"]
-            : id === "satellite" ? ["#60758c", "#9caec0", "#d3dce5", "#f4f6f8", "#ffffff"]
-              : id === "rainfall" ? ["#cee9ff", "#72c3eb", "#2e91d1", "#1864b0", "#25449b"]
-                : id === "wind" ? ["#f4e7d4", "#f0bf84", "#e98952", "#c54640", "#792b56"]
-                  : id === "humidity" ? ["#edf6fb", "#b9dfef", "#78bde0", "#398fc7", "#145b9d"]
-                    : id === "warning" ? ["#f5f4df", "#f4d54c", "#f29b38", "#e65335", "#a9203a"]
-                      : id === "simulation" ? ["#d8e6f6", "#a5c4e6", "#7c9ed0", "#675da8", "#413779"]
-                        : id === "forecast" ? ["#4467a8", "#64a5ca", "#e1d981", "#e99a56", "#bd4c55"]
-                          : ["#e4e7a0", "#d6d677", "#e4c569", "#e6a45c", "#d98359"];
+          const palette =
+            id === "radar"
+              ? [
+                  "#2775cb",
+                  "#27a6b8",
+                  "#51bb54",
+                  "#e5d63a",
+                  "#ee6338",
+                  "#b82844",
+                ]
+              : id === "satellite"
+                ? ["#60758c", "#9caec0", "#d3dce5", "#f4f6f8", "#ffffff"]
+                : id === "rainfall"
+                  ? ["#cee9ff", "#72c3eb", "#2e91d1", "#1864b0", "#25449b"]
+                  : id === "wind"
+                    ? ["#f4e7d4", "#f0bf84", "#e98952", "#c54640", "#792b56"]
+                    : id === "humidity"
+                      ? ["#edf6fb", "#b9dfef", "#78bde0", "#398fc7", "#145b9d"]
+                      : id === "warning"
+                        ? [
+                            "#f5f4df",
+                            "#f4d54c",
+                            "#f29b38",
+                            "#e65335",
+                            "#a9203a",
+                          ]
+                        : id === "simulation"
+                          ? [
+                              "#d8e6f6",
+                              "#a5c4e6",
+                              "#7c9ed0",
+                              "#675da8",
+                              "#413779",
+                            ]
+                          : id === "forecast"
+                            ? [
+                                "#4467a8",
+                                "#64a5ca",
+                                "#e1d981",
+                                "#e99a56",
+                                "#bd4c55",
+                              ]
+                            : [
+                                "#e4e7a0",
+                                "#d6d677",
+                                "#e4c569",
+                                "#e6a45c",
+                                "#d98359",
+                              ];
           const values = frame?.observations ?? [];
           if (id === "boundary") {
             if (scene.boundaryUrl) {
               const response = await fetch(scene.boundaryUrl, { signal });
               if (!response.ok) throw new Error("行政边界数据加载失败");
-              const boundaries = parseAdministrativeBoundary(await response.json());
+              const boundaries = parseAdministrativeBoundary(
+                await response.json(),
+              );
               if (signal.aborted || disposed) throw new Error("加载已取消");
               for (const boundary of boundaries) {
                 source.entities.add({
                   name: boundary.name,
                   polyline: {
-                    positions: Cartesian3.fromDegreesArray(boundary.coordinates),
+                    positions: Cartesian3.fromDegreesArray(
+                      boundary.coordinates,
+                    ),
                     clampToGround: true,
                     width: 2,
                     material: Color.fromCssColorString("#20b5da"),
@@ -310,38 +418,65 @@ export default function MapView({
                 });
               }
             } else {
-            source.entities.add({
-              polyline: {
-                clampToGround: true,
-                positions: Cartesian3.fromDegreesArray([
-                  lon - 0.55,
-                  lat - 0.42,
-                  lon + 0.62,
-                  lat - 0.42,
-                  lon + 0.62,
-                  lat + 0.48,
-                  lon - 0.55,
-                  lat + 0.48,
-                  lon - 0.55,
-                  lat - 0.42,
-                ]),
-                width: 3,
-                material: Color.fromCssColorString("#20b5da"),
-              },
-            });
-            source.entities.add({
-              position: Cartesian3.fromDegrees(lon + 0.42, lat + 0.45),
-              label: {
-                text: "示例范围 · 非行政边界",
-                heightReference: HeightReference.CLAMP_TO_GROUND,
-                font: "14px sans-serif",
-                fillColor: Color.fromCssColorString("#36586d"),
-                showBackground: true,
-                backgroundColor: Color.WHITE.withAlpha(0.85),
-                pixelOffset: new Cartesian2(0, -12),
-              },
-            });
+              source.entities.add({
+                polyline: {
+                  clampToGround: true,
+                  positions: Cartesian3.fromDegreesArray([
+                    lon - 0.55,
+                    lat - 0.42,
+                    lon + 0.62,
+                    lat - 0.42,
+                    lon + 0.62,
+                    lat + 0.48,
+                    lon - 0.55,
+                    lat + 0.48,
+                    lon - 0.55,
+                    lat - 0.42,
+                  ]),
+                  width: 3,
+                  material: Color.fromCssColorString("#20b5da"),
+                },
+              });
+              source.entities.add({
+                position: Cartesian3.fromDegrees(lon + 0.42, lat + 0.45),
+                label: {
+                  text: "示例范围 · 非行政边界",
+                  heightReference: HeightReference.CLAMP_TO_GROUND,
+                  font: "14px sans-serif",
+                  fillColor: Color.fromCssColorString("#36586d"),
+                  showBackground: true,
+                  backgroundColor: Color.WHITE.withAlpha(0.85),
+                  pixelOffset: new Cartesian2(0, -12),
+                },
+              });
             }
+          } else if (customFrame) {
+            for (const observation of values)
+              source.entities.add({
+                id: `${id}:${observation.stationId}`,
+                position: Cartesian3.fromDegrees(
+                  observation.location.lon,
+                  observation.location.lat,
+                  40,
+                ),
+                point: {
+                  pixelSize: 12,
+                  color: Color.fromCssColorString("#15a68b"),
+                  outlineColor: Color.WHITE,
+                  outlineWidth: 2,
+                  heightReference: HeightReference.RELATIVE_TO_GROUND,
+                  disableDepthTestDistance: Infinity,
+                },
+                label: {
+                  text: `${observation.stationId} · ${observation.elements[descriptor.valueField ?? "temperatureC"] ?? "—"} ${customFrame.unit}\n${customFrame.source} · ${descriptor.name}`,
+                  font: "12px sans-serif",
+                  fillColor: Color.WHITE,
+                  showBackground: true,
+                  heightReference: HeightReference.RELATIVE_TO_GROUND,
+                  pixelOffset: new Cartesian2(0, -22),
+                  disableDepthTestDistance: Infinity,
+                },
+              });
           } else if (descriptor.rendererType === "station") {
             const visibleStations = latestStations.current.filter((s) =>
               id === "stations"
@@ -378,19 +513,93 @@ export default function MapView({
                 });
               }),
             );
+          } else if (
+            id === "radar" ||
+            id === "satellite" ||
+            id === "forecast"
+          ) {
+            const raster = rasterizeWeather(frame?.gridCells ?? [], id);
+            if (raster) {
+              rasterCanvas = document.createElement("canvas");
+              rasterCanvas.width = raster.width;
+              rasterCanvas.height = raster.height;
+              const context = rasterCanvas.getContext("2d");
+              if (!context) throw new Error("浏览器无法创建气象栅格画布");
+              const pixels = context.createImageData(
+                raster.width,
+                raster.height,
+              );
+              pixels.data.set(raster.pixels);
+              context.putImageData(pixels, 0, 0);
+              source.entities.add({
+                id: `${id}-raster`,
+                rectangle: {
+                  coordinates: Rectangle.fromDegrees(...raster.bounds),
+                  material: new ImageMaterialProperty({
+                    image: rasterCanvas,
+                    transparent: true,
+                  }),
+                  heightReference: HeightReference.CLAMP_TO_GROUND,
+                },
+              });
+            }
+          } else if (id === "wind") {
+            for (const glyph of windGlyphs(frame?.gridCells ?? [])) {
+              source.entities.add({
+                id: glyph.id,
+                polyline: {
+                  positions: Cartesian3.fromDegreesArray([
+                    ...glyph.start,
+                    ...glyph.end,
+                  ]),
+                  clampToGround: true,
+                  width: 7,
+                  material: new PolylineArrowMaterialProperty(
+                    Color.fromCssColorString(
+                      glyph.speed >= 12
+                        ? "#ff7043"
+                        : glyph.speed >= 6
+                          ? "#ffc857"
+                          : "#39c9ed",
+                    ),
+                  ),
+                },
+              });
+            }
           } else if (frame?.gridCells?.length) {
             for (const cell of frame.gridCells) {
-              const range = id === "radar" ? 70 : id === "wind" ? 25 : id === "forecast" ? 45 : id === "warning" ? 4 : 100;
-              const bucket = Math.min(palette.length - 1, Math.floor((cell.value / range) * palette.length));
-              const alpha = id === "satellite"
-                ? 0.15 + (cell.value / 100) * 0.52
-                : id === "warning" ? (cell.value === 0 ? 0.03 : 0.34 + (cell.value / range) * 0.5)
-                  : 0.4 + Math.min(1, cell.value / range) * 0.42;
+              const range =
+                id === "radar"
+                  ? 70
+                  : id === "wind"
+                    ? 25
+                    : id === "forecast"
+                      ? 45
+                      : id === "warning"
+                        ? 4
+                        : 100;
+              const bucket = Math.max(
+                0,
+                Math.min(
+                  palette.length - 1,
+                  Math.floor((cell.value / range) * palette.length),
+                ),
+              );
+              const alpha =
+                id === "satellite"
+                  ? 0.15 + (cell.value / 100) * 0.52
+                  : id === "warning"
+                    ? cell.value === 0
+                      ? 0.03
+                      : 0.34 + (cell.value / range) * 0.5
+                    : 0.4 + Math.min(1, cell.value / range) * 0.42;
               source.entities.add({
                 id: cell.id,
                 rectangle: {
                   coordinates: Rectangle.fromDegrees(...cell.bounds),
-                  material: Color.fromCssColorString(palette[bucket]).withAlpha(alpha),
+                  material: Color.fromCssColorString(palette[bucket]).withAlpha(
+                    alpha,
+                  ),
                   heightReference: HeightReference.CLAMP_TO_GROUND,
                 },
               });
@@ -401,7 +610,12 @@ export default function MapView({
                 const x = lon - 0.55 + col * 0.117,
                   y = lat - 0.42 + row * 0.1125;
                 const idx =
-                  (row + col + new Date(frame?.observedAt ?? currentTime.current).getUTCHours() + 8) %
+                  (row +
+                    col +
+                    new Date(
+                      frame?.observedAt ?? currentTime.current,
+                    ).getUTCHours() +
+                    8) %
                   5;
                 source.entities.add({
                   rectangle: {
@@ -428,21 +642,41 @@ export default function MapView({
           const baseColors = new Map<Entity, Color>();
           source.entities.values.forEach((e) => {
             const m = e.rectangle?.material;
-            if (m instanceof ColorMaterialProperty)
+            if (
+              m instanceof ColorMaterialProperty ||
+              m instanceof ImageMaterialProperty
+            )
               baseColors.set(
                 e,
                 m.color?.getValue(v.clock.currentTime) ?? Color.WHITE,
               );
           });
+          if (frame) frameCallback.current?.(id, frame);
+          const arrowColors = new Map<Entity, Color>();
+          for (const entity of source.entities.values) {
+            const material = entity.polyline?.material;
+            if (material instanceof PolylineArrowMaterialProperty)
+              arrowColors.set(
+                entity,
+                material.color?.getValue(v.clock.currentTime) ?? Color.WHITE,
+              );
+          }
           v.scene.requestRender();
           return {
             setOpacity(value) {
               source.entities.values.forEach((e) => {
                 const color = baseColors.get(e);
-                if (color && e.rectangle)
-                  e.rectangle.material = new ColorMaterialProperty(
-                    color.withAlpha(value),
-                  );
+                if (color && e.rectangle) {
+                  const material = e.rectangle.material;
+                  if (material instanceof ImageMaterialProperty)
+                    material.color = new ConstantProperty(
+                      color.withAlpha(color.alpha * value),
+                    );
+                  else
+                    e.rectangle.material = new ColorMaterialProperty(
+                      color.withAlpha(color.alpha * value),
+                    );
+                }
                 if (e.point)
                   e.point.color = new ConstantProperty(
                     Color.fromCssColorString("#1263c4").withAlpha(value),
@@ -458,10 +692,20 @@ export default function MapView({
                     Color.WHITE.withAlpha(value * 0.85),
                   );
                 }
-                if (e.polyline)
-                  e.polyline.material = new ColorMaterialProperty(
-                    Color.fromCssColorString("#20b5da").withAlpha(value),
-                  );
+                if (e.polyline) {
+                  const arrowColor = arrowColors.get(e);
+                  if (
+                    arrowColor &&
+                    e.polyline.material instanceof PolylineArrowMaterialProperty
+                  )
+                    e.polyline.material.color = new ConstantProperty(
+                      arrowColor.withAlpha(value),
+                    );
+                  else
+                    e.polyline.material = new ColorMaterialProperty(
+                      Color.fromCssColorString("#20b5da").withAlpha(value),
+                    );
+                }
               });
               v.scene.requestRender();
             },
@@ -470,6 +714,10 @@ export default function MapView({
               await runtime?.toggle(id, true);
             },
             dispose() {
+              if (rasterCanvas) {
+                rasterCanvas.width = 0;
+                rasterCanvas.height = 0;
+              }
               if (!v.isDestroyed()) {
                 v.dataSources.remove(source, true);
                 v.scene.requestRender();
@@ -477,6 +725,9 @@ export default function MapView({
             },
           };
         };
+        previousLayerIds.current = new Set(
+          latestLayers.current.map((layer) => layer.id),
+        );
         runtime = new LayerRuntime(createLayer);
         runtimeRef.current = runtime;
         drawingSource = new CustomDataSource("drawing");
@@ -833,8 +1084,10 @@ export default function MapView({
           ScreenSpaceEventType.LEFT_DOWN,
         );
         onReady(runtime, map);
-        void runtime.toggle("boundary", true);
-        void runtime.toggle("stations", true);
+        if (latestLayers.current.some((layer) => layer.id === "boundary"))
+          void runtime.toggle("boundary", true);
+        if (latestLayers.current.some((layer) => layer.id === "stations"))
+          void runtime.toggle("stations", true);
       } catch (e) {
         if (!disposed)
           setError(e instanceof Error ? e.message : "地图初始化失败");
@@ -844,8 +1097,11 @@ export default function MapView({
     return () => {
       // 先标记异步流程失效，再停止漫游、卸载图层和销毁 Cesium 输入及 Viewer。
       disposed = true;
+      lifecycle.abort();
+      disposeTerrain?.();
       if (terrainLoadTimer !== undefined) window.clearTimeout(terrainLoadTimer);
       removeTerrainErrorListener?.();
+      removeCameraListeners.forEach((remove) => remove());
       if (
         activeIonAccessToken &&
         previousIonAccessToken &&
@@ -864,13 +1120,26 @@ export default function MapView({
   useEffect(() => {
     const runtime = runtimeRef.current;
     if (!runtime) return;
+    const nextIds = new Set(layers.map((layer) => layer.id));
+    for (const id of previousLayerIds.current)
+      if (!nextIds.has(id)) void runtime.toggle(id, false);
+    previousLayerIds.current = nextIds;
     for (const l of layers)
-      if (l.id !== "boundary" && ["on", "loading", "error"].includes(runtime.snapshot(l.id).status))
+      if (
+        l.id !== "boundary" &&
+        ["on", "loading", "error"].includes(runtime.snapshot(l.id).status)
+      )
         void runtime.toggle(l.id, true);
   }, [time, stations, layers, dataRevision]);
   return (
     <>
-      <div ref={container} className="map-canvas" aria-label="三维交互地图" />
+      <div
+        ref={container}
+        className="map-canvas"
+        aria-label="三维交互地图"
+        aria-busy={moving}
+        data-camera-revision={cameraRevision}
+      />
       {error && (
         <Alert
           className="map-error"

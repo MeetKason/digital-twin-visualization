@@ -1,6 +1,20 @@
+import { TenantAuthorization } from "./TenantAuthorization";
+import { PluginManagement } from "./PluginPanels";
+import type { ProductModule } from "@dtv/contracts";
+import type { useExtensions } from "../useExtensions";
+import { ScenarioManager } from "./ScenarioManager";
+import { sessionFetch } from "../sessionRequest";
 import { UiButton } from "../ui/controls";
 import { lazy, Suspense, useCallback, useEffect, useState } from "react";
-import { Alert, Button, ConfigProvider, Menu, Table, Tag, type TableColumnsType } from "antd";
+import {
+  Alert,
+  Button,
+  ConfigProvider,
+  Menu,
+  Table,
+  Tag,
+  type TableColumnsType,
+} from "antd";
 import zhCN from "antd/locale/zh_CN";
 import type { Business } from "./useBusiness";
 import { download } from "./useBusiness";
@@ -15,6 +29,9 @@ const AccountManagement = lazy(() =>
 const sections = [
   "用户管理",
   "部署服务配置",
+  "场景包管理",
+  "租户产品授权",
+  "插件管理",
   "账号开通/管理",
   "用户与权限",
   "发布管理",
@@ -23,10 +40,16 @@ const sections = [
 ];
 export function SettingsPage({
   business,
+  modules,
+  extension,
   onDataChanged,
+  onSceneApplied,
 }: {
   business: Business;
+  modules: ProductModule[];
+  extension: ReturnType<typeof useExtensions>;
   onDataChanged: () => void;
+  onSceneApplied: () => Promise<void>;
 }) {
   const [section, setSection] = useState(sections[0]),
     [config, setConfig] = useState<unknown>(null),
@@ -51,7 +74,6 @@ export function SettingsPage({
       locale={zhCN}
       theme={{
         token: {
-          colorPrimary: "#1263c4",
           borderRadius: 4,
           fontFamily: '"PingFang SC", "Microsoft YaHei", Arial, sans-serif',
         },
@@ -78,17 +100,33 @@ export function SettingsPage({
             <span>
               {accountSection
                 ? "真实登录账号与权限"
-                : auditSection
-                  ? "租户范围内的服务端操作记录"
-                  : publicationSection
-                    ? "修订快照与发布历史"
-                    : section === "站点数据"
-                      ? "服务端资料与采集"
-                      : "演示配置"}
+                : section === "场景包管理"
+                  ? "草稿、发布与生效配置"
+                  : section === "租户产品授权"
+                    ? "许可证、套餐与授权范围"
+                    : section === "插件管理"
+                      ? "签名沙箱与扩展注册"
+                      : auditSection
+                        ? "租户范围内的服务端操作记录"
+                        : publicationSection
+                          ? "修订快照与发布历史"
+                          : section === "站点数据"
+                            ? "服务端资料与采集"
+                            : "演示配置"}
             </span>
           </div>
           <div className="panel-body">
-            {accountSection ? (
+            {section === "租户产品授权" ? (
+              <TenantAuthorization onApplied={onSceneApplied} />
+            ) : section === "插件管理" ? (
+              <PluginManagement extension={extension} />
+            ) : section === "场景包管理" ? (
+              <ScenarioManager
+                sceneId={business.sceneId}
+                onApplied={onSceneApplied}
+                businessSaving={business.status.startsWith("正在保存")}
+              />
+            ) : accountSection ? (
               <Suspense fallback={<p className="muted">正在加载账号管理…</p>}>
                 <AccountManagement />
               </Suspense>
@@ -120,10 +158,14 @@ export function SettingsPage({
               </>
             ) : (
               <>
-                <IngestionPanel
-                  sceneId={business.sceneId}
-                  onDataChanged={onDataChanged}
-                />
+                {modules.includes("ingestion") ? (
+                  <IngestionPanel
+                    sceneId={business.sceneId}
+                    onDataChanged={onDataChanged}
+                  />
+                ) : (
+                  <Alert type="info" message="当前套餐未授权采集管理模块" />
+                )}
                 <p>
                   站点 {business.data.stations.length} 个 · 方案{" "}
                   {business.data.plans.length} 个 · 视角{" "}
@@ -177,8 +219,8 @@ export function DevicePage({ sceneId }: { sceneId: string }) {
   const refresh = useCallback(async () => {
     try {
       const [healthResponse, devicesResponse] = await Promise.all([
-        fetch("/api/health"),
-        fetch(`/api/scenes/${encodeURIComponent(sceneId)}/devices`),
+        sessionFetch("/api/health"),
+        sessionFetch(`/api/scenes/${encodeURIComponent(sceneId)}/devices`),
       ]);
       if (!healthResponse.ok || !devicesResponse.ok)
         throw new Error("设备模拟数据不可用");
@@ -212,13 +254,67 @@ export function DevicePage({ sceneId }: { sceneId: string }) {
     offline: "离线（Mock）",
   };
   const columns: TableColumnsType<(typeof devices)[number]> = [
-    { title: "设备", key: "name", width: 210, render: (_, device) => <div className="device-name-cell"><strong>{device.name}</strong><small>{device.id}</small></div> },
+    {
+      title: "设备",
+      key: "name",
+      width: 210,
+      render: (_, device) => (
+        <div className="device-name-cell">
+          <strong>{device.name}</strong>
+          <small>{device.id}</small>
+        </div>
+      ),
+    },
     { title: "类型", dataIndex: "type", width: 150 },
-    { title: "状态", key: "status", width: 150, render: (_, device) => <Tag color={device.status === "online" ? "green" : device.status === "warning" ? "orange" : "default"}>{statusLabel[device.status]}</Tag> },
-    { title: "温度", key: "temperature", width: 100, align: "right", render: (_, device) => `${device.temperatureC.toFixed(1)} °C` },
-    { title: "电池", key: "battery", width: 90, align: "right", render: (_, device) => `${device.batteryPercent}%` },
-    { title: "信号", key: "signal", width: 110, align: "right", render: (_, device) => `${device.signalDbm} dBm` },
-    { title: "最近心跳", key: "lastSeen", width: 200, render: (_, device) => new Date(device.lastSeenAt).toLocaleString("zh-CN", { timeZone: "Asia/Shanghai", hour12: false }) },
+    {
+      title: "状态",
+      key: "status",
+      width: 150,
+      render: (_, device) => (
+        <Tag
+          color={
+            device.status === "online"
+              ? "green"
+              : device.status === "warning"
+                ? "orange"
+                : "default"
+          }
+        >
+          {statusLabel[device.status]}
+        </Tag>
+      ),
+    },
+    {
+      title: "温度",
+      key: "temperature",
+      width: 100,
+      align: "right",
+      render: (_, device) => `${device.temperatureC.toFixed(1)} °C`,
+    },
+    {
+      title: "电池",
+      key: "battery",
+      width: 90,
+      align: "right",
+      render: (_, device) => `${device.batteryPercent}%`,
+    },
+    {
+      title: "信号",
+      key: "signal",
+      width: 110,
+      align: "right",
+      render: (_, device) => `${device.signalDbm} dBm`,
+    },
+    {
+      title: "最近心跳",
+      key: "lastSeen",
+      width: 200,
+      render: (_, device) =>
+        new Date(device.lastSeenAt).toLocaleString("zh-CN", {
+          timeZone: "Asia/Shanghai",
+          hour12: false,
+        }),
+    },
     { title: "数据源", dataIndex: "protocol", width: 160 },
   ];
   return (
@@ -253,7 +349,11 @@ export function DevicePage({ sceneId }: { sceneId: string }) {
           tableLayout="fixed"
           dataSource={devices}
           columns={columns}
-          pagination={{ pageSize: 10, hideOnSinglePage: true, showSizeChanger: false }}
+          pagination={{
+            pageSize: 10,
+            hideOnSinglePage: true,
+            showSizeChanger: false,
+          }}
           scroll={{ x: 1150 }}
         />
         <h3>本机 API 健康</h3>

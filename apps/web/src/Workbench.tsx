@@ -1,5 +1,10 @@
+import { TenantAuthorization } from "./business/TenantAuthorization";
+import { PluginPage, PluginWidgets } from "./business/PluginPanels";
+import { WeatherLegend } from "./WeatherLegend";
 import { UiButton, UiSelect } from "./ui/controls";
-import { Alert } from "antd";
+import { Alert, ConfigProvider, Empty } from "antd";
+import zhCN from "antd/locale/zh_CN";
+import { MenuIds, ProductModules, type ProductModule } from "@dtv/contracts";
 import {
   lazy,
   Suspense,
@@ -9,6 +14,7 @@ import {
   useState,
   useRef,
   type PointerEvent,
+  type CSSProperties,
 } from "react";
 import type {
   SceneConfig,
@@ -18,7 +24,7 @@ import type {
 } from "@dtv/contracts";
 
 import type { LayerRuntime, MapFacade } from "@dtv/sdk";
-import { api, authApi, type SessionUser } from "./api";
+import { api, authApi, authorizationApi, type SessionUser } from "./api";
 import { Icon } from "./Icon";
 import { LayerPanel } from "./LayerPanel";
 import { Timeline } from "./Timeline";
@@ -40,6 +46,11 @@ const SettingsPage = lazy(() =>
     default: module.SettingsPage,
   })),
 );
+const ScenarioManager = lazy(() =>
+  import("./business/ScenarioManager").then((module) => ({
+    default: module.ScenarioManager,
+  })),
+);
 const DevicePage = lazy(() =>
   import("./business/SettingsPage").then((module) => ({
     default: module.DevicePage,
@@ -52,7 +63,7 @@ const navigation = [
   ["weather", "气象专题"],
   ["device", "设备监控"],
   ["settings", "系统管理"],
-];
+] as const;
 export default function Workbench({ onExit }: { onExit: () => void }) {
   const [profile, setProfile] = useState<SessionUser | null>(null);
   // 恢复服务端会话资料，用于显示真实账号或隔离演示会话标识。
@@ -66,83 +77,177 @@ export default function Workbench({ onExit }: { onExit: () => void }) {
     [sceneId, setSceneId] = useState("xian"),
     [error, setError] = useState(""),
     [now, setNow] = useState(new Date());
-  // 场景列表由 API 按当前会话授权过滤；组件卸载时中止尚未完成的请求。
-  useEffect(() => {
-    const ctrl = new AbortController();
-    void api
-      .scenes(ctrl.signal)
-      .then((list) => {
-        setScenes(list);
-        setSceneId((current) =>
-          list.some((s) => s.id === current) ? current : (list[0]?.id ?? ""),
-        );
-      })
-      .catch((e) => {
-        if (!ctrl.signal.aborted) setError(e.message);
-      });
-    return () => ctrl.abort();
+  const [modules, setModules] = useState<ProductModule[]>([...ProductModules]);
+  const [authorizationRevision, setAuthorizationRevision] = useState(0);
+  const [scenesLoaded, setScenesLoaded] = useState(false);
+  const mounted = useRef(true),
+    switching = useRef<AbortController | null>(null);
+  const refreshScenes = useCallback(async (signal?: AbortSignal) => {
+    const [list, grant] = await Promise.all([
+      api.scenes(signal),
+      authorizationApi.current(signal),
+    ]);
+    if (!signal?.aborted && mounted.current) {
+      setModules(grant.modules);
+      setAuthorizationRevision(grant.revision);
+    }
+    if (signal?.aborted || !mounted.current) return;
+    // 未变化的地区复用对象，发布其他地区时不重建当前Cesium实例。
+    setScenes((previous) =>
+      list.map(
+        (next) =>
+          previous.find(
+            (item) =>
+              item.id === next.id &&
+              JSON.stringify(item) === JSON.stringify(next),
+          ) ?? next,
+      ),
+    );
+    setSceneId((current) =>
+      list.some((item) => item.id === current) ? current : (list[0]?.id ?? ""),
+    );
+    setError("");
+    setScenesLoaded(true);
+    return list;
   }, []);
+  const sceneApplied = useCallback(async () => {
+    await refreshScenes();
+  }, [refreshScenes]);
+  useEffect(() => {
+    mounted.current = true;
+    const ctrl = new AbortController();
+    void refreshScenes(ctrl.signal).catch((e: Error) => {
+      if (!ctrl.signal.aborted) setError(e.message);
+    });
+    return () => {
+      mounted.current = false;
+      ctrl.abort();
+      switching.current?.abort();
+    };
+  }, [refreshScenes]);
+  async function chooseScene(id: string) {
+    switching.current?.abort();
+    const controller = new AbortController();
+    switching.current = controller;
+    try {
+      const list = await refreshScenes(controller.signal);
+      if (!controller.signal.aborted && list?.some((item) => item.id === id))
+        setSceneId(id);
+    } catch (e) {
+      if (!controller.signal.aborted) setError((e as Error).message);
+    }
+  }
   useEffect(() => {
     const timer = setInterval(() => setNow(new Date()), 1000);
     return () => clearInterval(timer);
   }, []);
   const scene = scenes.find((s) => s.id === sceneId);
   return (
-    <div className="application">
-      <header>
-        <div className="brand">
-          <div className="region-logo">{scene?.shortName ?? "孪生"}</div>
-          <div>
-            <h1>{scene?.name ?? ""}数字孪生可视化系统</h1>
-            <p>Digital Twin Visualization</p>
+    <ConfigProvider
+      locale={zhCN}
+      button={{ autoInsertSpace: false }}
+      theme={{
+        token: {
+          colorPrimary: scene?.ui?.theme.primary ?? "#1263c4",
+          borderRadius: 4,
+        },
+      }}
+    >
+      <div
+        className="application"
+        style={
+          {
+            "--primary": scene?.ui?.theme.primary ?? "#1263c4",
+            "--navy": scene?.ui?.theme.navy ?? "#1c466c",
+            "--scene-panel-width": `${scene?.ui?.layout.panelWidth ?? 264}px`,
+            "--scene-timeline-height": `${scene?.ui?.layout.timelineHeight ?? 112}px`,
+          } as CSSProperties
+        }
+      >
+        <header>
+          <div className="brand">
+            <div className="region-logo" title={scene?.shortName}>
+              <span>{scene?.shortName ?? "孪生"}</span>
+            </div>
+            <div>
+              <h1>{scene?.name ?? ""}数字孪生可视化系统</h1>
+              <p>Digital Twin Visualization</p>
+            </div>
           </div>
-        </div>
-        <div className="header-right">
-          <span className="demo-badge">
-            {profile?.kind === "demo" ? "隔离演示租户" : "服务端会话"}
-          </span>
-          <UiSelect
-            aria-label="地区场景"
-            value={sceneId}
-            onChange={(e) => setSceneId(e.target.value)}
-          >
-            {scenes.map((s) => (
-              <option key={s.id} value={s.id}>
-                {s.name}场景
-              </option>
-            ))}
-          </UiSelect>
-          <time>
-            {now.toLocaleDateString("sv-SE", { timeZone: "Asia/Shanghai" })}{" "}
-            <b>
-              {now.toLocaleTimeString("zh-CN", {
-                timeZone: "Asia/Shanghai",
-                hour12: false,
-              })}
-            </b>
-          </time>
-          <span className="header-divider" />
-          <Icon name="user" />
-          <span>{profile?.kind === "demo" ? "演示用户" : profile?.id}</span>
-          <UiButton className="exit" onClick={onExit}>
-            退出
-          </UiButton>
-        </div>
-      </header>
-      {error ? (
-        <div role="alert" className="loading-screen">
-          场景加载失败：{error}
-          <UiButton onClick={() => window.location.reload()}>重试</UiButton>
-        </div>
-      ) : scene ? (
-        <WorkArea key={scene.id} scene={scene} />
-      ) : (
-        <div className="loading-screen">正在读取场景…</div>
-      )}
-    </div>
+          <div className="header-right">
+            <span className="demo-badge">
+              {profile?.kind === "demo" ? "隔离演示租户" : "服务端会话"}
+            </span>
+            <UiSelect
+              aria-label="地区场景"
+              value={sceneId}
+              onChange={(e) => void chooseScene(e.target.value)}
+            >
+              {scenes.map((s) => (
+                <option key={s.id} value={s.id}>
+                  {s.name}场景
+                </option>
+              ))}
+            </UiSelect>
+            <time>
+              {now.toLocaleDateString("sv-SE", { timeZone: "Asia/Shanghai" })}{" "}
+              <b>
+                {now.toLocaleTimeString("zh-CN", {
+                  timeZone: "Asia/Shanghai",
+                  hour12: false,
+                })}
+              </b>
+            </time>
+            <span className="header-divider" />
+            <Icon name="user" />
+            <span>{profile?.kind === "demo" ? "演示用户" : profile?.id}</span>
+            <UiButton className="exit" onClick={onExit}>
+              退出
+            </UiButton>
+          </div>
+        </header>
+        {error ? (
+          <div role="alert" className="loading-screen">
+            场景加载失败：{error}
+            <UiButton onClick={() => window.location.reload()}>重试</UiButton>
+          </div>
+        ) : scene ? (
+          <WorkArea
+            key={`${scene.id}:${authorizationRevision}`}
+            scene={scene}
+            modules={modules}
+            onSceneApplied={sceneApplied}
+          />
+        ) : scenesLoaded ? (
+          <div className="no-scene-configuration">
+            <Empty description="当前账号暂无已发布场景" />
+            <TenantAuthorization onApplied={sceneApplied} />
+            {profile?.role === "admin" && profile.scenes[0] && (
+              <Suspense fallback={<p>正在加载场景配置…</p>}>
+                <ScenarioManager
+                  sceneId={profile.scenes[0]}
+                  onApplied={sceneApplied}
+                  businessSaving={false}
+                />
+              </Suspense>
+            )}
+          </div>
+        ) : (
+          <div className="loading-screen">正在读取场景…</div>
+        )}
+      </div>
+    </ConfigProvider>
   );
 }
-function WorkArea({ scene }: { scene: SceneConfig }) {
+function WorkArea({
+  scene,
+  modules,
+  onSceneApplied,
+}: {
+  scene: SceneConfig;
+  modules: ProductModule[];
+  onSceneApplied: () => Promise<void>;
+}) {
   const [layers, setLayers] = useState<LayerDescriptor[]>([]),
     [stations, setStations] = useState<Station[]>([]),
     [loadState, setLoadState] = useState<"loading" | "ready" | "error">(
@@ -156,7 +261,18 @@ function WorkArea({ scene }: { scene: SceneConfig }) {
     [index, setIndex] = useState(0),
     [playing, setPlaying] = useState(false),
     [station, setStation] = useState<Station | null>(null),
-    [activeMenu, setActiveMenu] = useState("home");
+    [activeMenu, setActiveMenu] = useState<string>("home");
+  const allowedMenus = scene.ui?.menus ?? MenuIds;
+  const navigate = (id: string) => {
+    if ((allowedMenus as readonly string[]).includes(id)) setActiveMenu(id);
+  };
+
+  const [frames, setFrames] = useState<Record<string, DataFrame>>({});
+  const receiveFrame = useCallback(
+    (id: string, frame: DataFrame) =>
+      setFrames((previous) => ({ ...previous, [id]: frame })),
+    [],
+  );
   const business = useBusiness(scene.id);
   const managedStations = useMemo(
     () => (business.data.stations.length ? business.data.stations : stations),
@@ -164,7 +280,14 @@ function WorkArea({ scene }: { scene: SceneConfig }) {
   );
   const [modelError, setModelError] = useState("");
   const [environment, setEnvironment] = useState<Environment>("none");
-  const extension = useExtensions(map);
+  const extension = useExtensions(map, scene, modules.includes("plugins"));
+  useEffect(() => {
+    if (
+      !(allowedMenus as readonly string[]).includes(activeMenu) &&
+      !extension.routes.some((route) => route.id === activeMenu)
+    )
+      setActiveMenu("home");
+  }, [allowedMenus, activeMenu, extension.routes]);
   useEffect(() => {
     setPlaying(false);
     setEnvironment("none");
@@ -293,6 +416,7 @@ function WorkArea({ scene }: { scene: SceneConfig }) {
       } catch (e) {
         if (!ctrl.signal.aborted)
           setTimesError("采集状态刷新失败：" + (e as Error).message);
+        if ((e as Error & { status?: number }).status === 403) ctrl.abort();
       } finally {
         pending = false;
         schedule(refreshNeeded.current ? 3000 : activeJobs ? 5000 : 30000);
@@ -315,6 +439,9 @@ function WorkArea({ scene }: { scene: SceneConfig }) {
   }, [scene.id, onDataChanged]);
   useEffect(() => {
     const ctrl = new AbortController();
+    setLoadState("loading");
+    setRuntime(null);
+    setMap(null);
     void Promise.all([
       api.layers(scene.id, ctrl.signal),
       api.stations(scene.id, ctrl.signal),
@@ -331,7 +458,7 @@ function WorkArea({ scene }: { scene: SceneConfig }) {
         }
       });
     return () => ctrl.abort();
-  }, [scene.id]);
+  }, [scene.id, scene.revision]);
   useEffect(() => {
     if (!playing || !times.length) return;
     const timer = setInterval(
@@ -352,14 +479,28 @@ function WorkArea({ scene }: { scene: SceneConfig }) {
   return (
     <div className="workspace">
       <nav className="side-navigation" aria-label="主导航">
-        {navigation.map(([id, label]) => (
+        {navigation
+          .filter(([id]) => allowedMenus.includes(id))
+          .map(([id, label]) => (
+            <UiButton
+              key={id}
+              className={activeMenu === id ? "active" : ""}
+              onClick={() => navigate(id)}
+            >
+              <Icon name={id} active={activeMenu === id} />
+              <span>{label}</span>
+            </UiButton>
+          ))}
+        {extension.routes.map((route) => (
           <UiButton
-            key={id}
-            className={activeMenu === id ? "active" : ""}
-            onClick={() => setActiveMenu(id)}
+            key={route.id}
+            className={activeMenu === route.id ? "active" : ""}
+            onClick={() => setActiveMenu(route.id)}
           >
-            <Icon name={id} active={activeMenu === id} />
-            <span>{label}</span>
+            <Icon name="settings" />
+            <span className="plugin-nav-label" title={route.title}>
+              {route.title}
+            </span>
           </UiButton>
         ))}
         <div className="navigation-bottom">
@@ -373,12 +514,14 @@ function WorkArea({ scene }: { scene: SceneConfig }) {
             fallback={<div className="loading-screen">正在载入三维引擎…</div>}
           >
             <MapView
+              resolvePluginFrame={extension.resolveFrame}
               scene={scene}
               layers={allLayers}
               stations={managedStations}
               time={time}
               dataRevision={dataRevision}
               onReady={ready}
+              onFrame={receiveFrame}
               onStation={pickStation}
             />
           </Suspense>
@@ -466,9 +609,18 @@ function WorkArea({ scene }: { scene: SceneConfig }) {
             environment={environment}
             onEnvironment={setEnvironment}
             onClose={() => setToolsOpen(false)}
-            onRoam={() => setActiveMenu("roam")}
+            onRoam={() => navigate("roam")}
+            allowRoam={allowedMenus.includes("roam")}
           />
         )}
+        {activeMenu === "home" && (
+          <PluginWidgets widgets={extension.widgets} map={map} />
+        )}
+        {extension.routes
+          .filter((route) => route.id === activeMenu)
+          .map((route) => (
+            <PluginPage key={route.id} route={route} map={map} />
+          ))}
         <EnvironmentOverlay value={environment} />
         {station && activeMenu === "home" && (
           <StationDetails
@@ -485,6 +637,8 @@ function WorkArea({ scene }: { scene: SceneConfig }) {
             map={map}
             sceneId={scene.id}
             time={time}
+            allowFiles={modules.includes("files")}
+            allowRoam={modules.includes("roam")}
             onMap={() => setActiveMenu("home")}
           />
         )}
@@ -504,13 +658,27 @@ function WorkArea({ scene }: { scene: SceneConfig }) {
         )}
         {activeMenu === "settings" && (
           <Suspense fallback={<p className="muted">正在加载系统设置…</p>}>
-            <SettingsPage business={business} onDataChanged={onDataChanged} />
+            <SettingsPage
+              business={business}
+              modules={modules}
+              extension={extension}
+              onDataChanged={onDataChanged}
+              onSceneApplied={onSceneApplied}
+            />
           </Suspense>
         )}
         <div className="workbench-alerts">
           {modelError && <Alert type="error" showIcon message={modelError} />}
-          {timesError && <Alert type="warning" showIcon message={`时次读取失败：${timesError}`} />}
-          {business.error && <Alert type="error" showIcon message={business.error} />}
+          {timesError && (
+            <Alert
+              type="warning"
+              showIcon
+              message={`时次读取失败：${timesError}`}
+            />
+          )}
+          {business.error && (
+            <Alert type="error" showIcon message={business.error} />
+          )}
         </div>
         <div className="business-sync">
           <span role="status">{business.status}</span>
@@ -526,17 +694,13 @@ function WorkArea({ scene }: { scene: SceneConfig }) {
           )}
         </div>
 
-        <div className="map-legend" hidden={activeMenu !== "home"}>
-          <strong>气温 °C · 示例色标</strong>
-          <div className="legend-gradient" />
-          <strong>1 小时降水 mm · 示例色标</strong>
-          <div className="legend-gradient rainfall" />
-          <div>
-            <span>低</span>
-            <span>示意分布，非分析产品</span>
-            <span>高</span>
-          </div>
-        </div>
+        <WeatherLegend
+          runtime={runtime}
+          frames={frames}
+          time={time}
+          hidden={activeMenu !== "home"}
+          onLocate={() => map?.flyTo(...scene.center, scene.height * 0.65)}
+        />
         <div hidden={activeMenu !== "home"}>
           <Timeline
             times={times}
@@ -686,7 +850,7 @@ function StationDetails({
           <dd>{frame ? "演示资料，不用于业务研判" : error || "加载中…"}</dd>
         </dl>
         <p className="data-disclaimer">
-          模型、视频、附件和正式档案将在站点管理阶段接入。
+          关联模型、视频和 PDF 可在点位管理中查看；演示资料不用于业务研判。
         </p>
         {extension.discovering ? (
           <p className="muted">正在发现同源插件…</p>

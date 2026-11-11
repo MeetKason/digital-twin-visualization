@@ -37,6 +37,7 @@ export function UiButton({
   const mini = className?.split(/\s+/).includes("mini") ?? false;
   return (
     <AntButton
+      autoInsertSpace={false}
       {...props}
       htmlType={htmlType ?? type}
       type={variant ?? (primary ? "primary" : "default")}
@@ -101,11 +102,13 @@ export function UiSlider({
   value,
   defaultValue,
   onChange,
+  "aria-label": ariaLabel,
   ...props
 }: UiSliderProps) {
   return (
     <AntSlider
       {...props}
+      ariaLabelForHandle={ariaLabel}
       min={min === undefined ? 0 : Number(min)}
       max={max === undefined ? 100 : Number(max)}
       step={step === undefined ? 1 : Number(step)}

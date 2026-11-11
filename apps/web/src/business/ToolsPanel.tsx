@@ -16,6 +16,7 @@ export function ToolsPanel({
   business,
   onClose,
   onRoam,
+  allowRoam = true,
   environment,
   onEnvironment,
 }: {
@@ -23,6 +24,7 @@ export function ToolsPanel({
   business: Business;
   onClose: () => void;
   onRoam: () => void;
+  allowRoam?: boolean;
   environment: Environment;
   onEnvironment: (e: Environment) => void;
 }) {
@@ -125,7 +127,7 @@ export function ToolsPanel({
             },
           ],
           ["历史书签", () => setDialog("bookmarks")],
-          ["自定义路径漫游", onRoam],
+          ...(allowRoam ? [["自定义路径漫游", onRoam] as [string, () => void]] : []),
         ])}
         <h3>自然环境模拟</h3>
         <div className="tool-grid">

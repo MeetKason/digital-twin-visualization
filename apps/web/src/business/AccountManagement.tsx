@@ -2,7 +2,6 @@ import { useCallback, useEffect, useState } from "react";
 import {
   Alert,
   Button,
-  Checkbox,
   Form,
   Input,
   Popconfirm,
@@ -12,7 +11,7 @@ import {
   Tag,
   type TableColumnsType,
 } from "antd";
-import { accountAdminApi, type ManagedAccount } from "../api";
+import { authApi, accountAdminApi, type ManagedAccount } from "../api";
 
 const scenes = ["xian", "taiyuan", "chengdu"] as const;
 const sceneNames: Record<(typeof scenes)[number], string> = {
@@ -20,12 +19,12 @@ const sceneNames: Record<(typeof scenes)[number], string> = {
   taiyuan: "太原",
   chengdu: "成都",
 };
-const sceneOptions = scenes.map((value) => ({
+const defaultSceneOptions = scenes.map((value) => ({
   label: sceneNames[value],
   value,
 }));
 const roles: Record<ManagedAccount["role"], string> = {
-  admin: "管理员",
+  admin: "租户管理员",
   editor: "编辑员",
   viewer: "只读",
 };
@@ -42,7 +41,36 @@ type CreateAccountForm = Pick<
 };
 
 export function AccountManagement() {
+  const [sceneIds, setSceneIds] = useState<string[]>([]);
+  const [platformAdmin, setPlatformAdmin] = useState(false),
+    [ownTenant, setOwnTenant] = useState("");
+  useEffect(() => {
+    void authApi
+      .session()
+      .then(({ user }) => {
+        setSceneIds(user?.scenes ?? []);
+        setPlatformAdmin(!!user?.platformAdmin);
+        setOwnTenant(user?.tenantId ?? "");
+      })
+      .catch(() => {});
+  }, []);
   const [accounts, setAccounts] = useState<ManagedAccount[]>([]);
+  const allSceneOptions = [
+    ...new Map(
+      [
+        ...defaultSceneOptions,
+        ...[...sceneIds, ...accounts.flatMap((account) => account.scenes)].map(
+          (id) => ({
+            value: id,
+            label: sceneNames[id as keyof typeof sceneNames] ?? id,
+          }),
+        ),
+      ].map((option) => [option.value, option]),
+    ).values(),
+  ];
+  const sceneOptions = platformAdmin
+    ? allSceneOptions
+    : allSceneOptions.filter((option) => sceneIds.includes(option.value));
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const [busy, setBusy] = useState(false);
@@ -126,6 +154,7 @@ export function AccountManagement() {
         editingId === account.id ? (
           <Input
             aria-label={`${account.id} 租户`}
+            disabled={!platformAdmin}
             value={rowDraft?.tenantId ?? tenantId}
             onChange={(event) =>
               setRowDraft((draft) =>
@@ -165,10 +194,12 @@ export function AccountManagement() {
       width: 230,
       render: (authorizedScenes: string[], account) =>
         editingId === account.id ? (
-          <Checkbox.Group
+          <Select
+            mode={platformAdmin ? "tags" : "multiple"}
             className="account-row-scenes"
             aria-label={`${account.id} 地区授权`}
             options={sceneOptions}
+            style={{ width: "100%" }}
             value={rowDraft?.scenes ?? authorizedScenes}
             onChange={(value) =>
               setRowDraft((draft) =>
@@ -338,9 +369,9 @@ export function AccountManagement() {
           layout="vertical"
           className="account-create"
           initialValues={{
-            tenantId: "default",
+            tenantId: ownTenant,
             role: "viewer",
-            scenes: ["xian"],
+            scenes: sceneIds.slice(0, 1),
           }}
           onFinish={(values) =>
             void run(async () => {
@@ -369,7 +400,7 @@ export function AccountManagement() {
             name="tenantId"
             rules={[{ required: true, message: "请输入租户 ID" }]}
           >
-            <Input maxLength={64} />
+            <Input disabled={!platformAdmin} maxLength={64} />
           </Form.Item>
           <Form.Item label="角色" name="role" rules={[{ required: true }]}>
             <Select options={roleOptions} />
@@ -386,8 +417,9 @@ export function AccountManagement() {
               },
             ]}
           >
-            <Checkbox.Group
-              className="account-scene-group"
+            <Select
+              mode={platformAdmin ? "tags" : "multiple"}
+              className="account-scene-select"
               options={sceneOptions}
             />
           </Form.Item>

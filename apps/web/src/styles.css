@@ -450,8 +450,8 @@ button.primary {
   position: absolute;
   top: 8px;
   left: 72px;
-  width: 264px;
-  max-height: calc(100% - 190px);
+  width: var(--scene-panel-width, 264px);
+  max-height: calc(100% - var(--scene-timeline-height, 112px) - 78px);
   overflow: auto;
 }
 .panel-heading {
@@ -658,7 +658,7 @@ button.primary {
 }
 .map-coordinates {
   position: absolute;
-  bottom: 142px;
+  bottom: calc(var(--scene-timeline-height, 112px) + 30px);
   left: 14px;
   font-size: 10px;
   color: #40596b;
@@ -677,7 +677,7 @@ button.primary {
   left: 12px;
   right: 12px;
   bottom: 8px;
-  height: 112px;
+  height: var(--scene-timeline-height, 112px);
   background: #fff;
   border: 1px solid var(--border);
   border-radius: 4px;
@@ -739,7 +739,7 @@ button.primary {
 .map-legend {
   position: absolute;
   right: 12px;
-  bottom: 130px;
+  bottom: calc(var(--scene-timeline-height, 112px) + 18px);
   background: #fffffff0;
   border: 1px solid var(--border);
   border-radius: 4px;
@@ -763,11 +763,6 @@ button.primary {
     #d98359
   );
   margin: 5px 0;
-}
-.map-legend > div:last-child {
-  display: flex;
-  justify-content: space-between;
-  color: #6e7f93;
 }
 .station-details,
 .module-panel {
@@ -901,7 +896,7 @@ dd {
     font-size: 11px;
   }
   .layer-panel {
-    width: 264px;
+    width: var(--scene-panel-width, 264px);
   }
   .map-notice {
     max-width: calc(100% - 360px);
@@ -1108,7 +1103,7 @@ h3 {
   position: absolute;
   top: 8px;
   left: 72px;
-  width: 264px;
+  width: var(--scene-panel-width, 264px);
   max-height: calc(100% - 140px);
   overflow: auto;
   z-index: 5;
@@ -1163,9 +1158,10 @@ h3 {
 .business-modal .panel-body {
   padding: 24px;
 }
-.business-modal label,
-.business-page label,
-.cruise-editor label {
+/* 表单字段可纵向排列；Ant 复选框/单选框保留组件自身的横向布局。 */
+.business-modal label:not(.ant-checkbox-wrapper):not(.ant-radio-wrapper),
+.business-page label:not(.ant-checkbox-wrapper):not(.ant-radio-wrapper),
+.cruise-editor label:not(.ant-checkbox-wrapper):not(.ant-radio-wrapper) {
   display: flex;
   flex-direction: column;
   gap: 6px;
@@ -1266,7 +1262,7 @@ h3 {
   position: absolute;
   top: 8px;
   left: 12px;
-  width: 264px;
+  width: var(--scene-panel-width, 264px);
   max-height: calc(100% - 150px);
   overflow: auto;
 }
@@ -1275,7 +1271,7 @@ h3 {
   right: 12px;
   top: 8px;
   width: 328px;
-  bottom: 142px;
+  bottom: calc(var(--scene-timeline-height, 112px) + 30px);
   overflow: auto;
 }
 .catalog-card {
@@ -1562,7 +1558,7 @@ h3 {
 .business-storage-error {
   position: absolute;
   left: 350px;
-  bottom: 130px;
+  bottom: calc(var(--scene-timeline-height, 112px) + 18px);
   background: #fff0ed;
   color: #a63a31;
   z-index: 10;
@@ -1765,10 +1761,10 @@ h3 {
     grid-template-columns: 280px 1fr;
   }
   .topic-catalog {
-    width: 264px;
+    width: var(--scene-panel-width, 264px);
   }
   .topic-metrics {
-    width: 264px;
+    width: var(--scene-panel-width, 264px);
   }
   .topic-map-heading {
     left: 288px;
@@ -2016,3 +2012,47 @@ h3 {
 .settings-page .ant-table table { margin-top: 0; }
 .device-name-cell { display: grid; gap: 4px; overflow-wrap: anywhere; }
 .device-name-cell small { color: #6e7f93; }
+
+.product-legend { width: min(360px, calc(100% - 28px)); max-height: min(380px, calc(100% - 180px)); overflow: auto; }
+.product-legend-item + .product-legend-item { margin-top: 8px; }
+.product-legend .ant-tag { font-size: 10px; line-height: 16px; margin-inline-end: 0; }
+.product-legend small { font-size: 10px; color: #52687d; }
+.product-legend .legend-gradient.radar { background: linear-gradient(90deg, #4b91e0, #22b8d5, #26be43, #f4e135, #f99720, #ee382c, #b4269d); }
+.product-legend .legend-gradient.satellite { background: linear-gradient(90deg, #536475, #a2abb5, #fff); }
+.product-legend .legend-gradient.wind { background: linear-gradient(90deg, #39c9ed, #ffc857, #ff7043); }
+.forecast-validity { margin: 4px 0 0; font-size: 11px; line-height: 1.6; }
+
+.product-legend { padding: 0; }
+.product-legend > .ant-card-body { display: block; }
+
+
+.scenario-manager { display: flex; flex-direction: column; gap: 16px; }
+.scenario-editor { border: 0; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 16px; }
+.scenario-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px 20px; }
+.scenario-grid label, .scenario-editor > label { display: flex; flex-direction: column; gap: 6px; }
+.scenario-grid .ant-input-number { width: 100%; }
+.scenario-layer-options { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; max-height: 260px; overflow: auto; }
+@media (max-width: 900px) { .scenario-grid, .scenario-layer-options { grid-template-columns: minmax(0, 1fr); } }
+
+.scenario-field { display: flex; flex-direction: column; gap: 6px; }
+.account-scene-select { width: 100%; }
+
+.no-scene-configuration { overflow: auto; padding: 24px; background: white; flex: 1; }
+.no-scene-configuration > .scenario-manager { max-width: 1100px; margin: 24px auto; }
+
+.brand { flex: 1 1 auto; min-width: 0; }
+.brand > div:last-child { min-width: 0; }
+.brand h1 { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.region-logo { flex-shrink: 0; }
+.region-logo > span { max-width: 36px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.header-right { flex-shrink: 0; }
+.header-right .ant-select { min-width: 140px; max-width: 240px; }
+
+/* 插件输出只渲染声明式Ant组件，并避开时间轴和地图工具面板。 */
+.plugin-page { position: absolute; inset: 12px 12px var(--timeline-height,112px) 12px; z-index: 14; overflow: auto; background: #f5f7fa; }
+.plugin-widgets { position: absolute; top: 90px; right: 16px; bottom: calc(var(--timeline-height,112px) + 16px); width: 280px; overflow: auto; display: flex; flex-direction: column; gap: 12px; pointer-events: none; }
+.plugin-widgets .ant-card { pointer-events: auto; }
+.plugin-action { margin-top: 16px; }
+.tenant-authorization,.plugin-management { display:flex; flex-direction:column; gap:16px; min-width:0; }
+.tenant-authorization .ant-descriptions-item-content { overflow-wrap:anywhere; }
+.side-navigation .plugin-nav-label { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; white-space: normal; overflow-wrap: anywhere; }

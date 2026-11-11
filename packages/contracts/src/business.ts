@@ -1,6 +1,7 @@
 import { z } from "zod";
 import type { Station } from "./index";
 export type Coordinate = [number, number];
+/** 相机姿态heading/pitch/roll使用弧度；漫游点位pitch等编辑参数仍使用度。 */
 export interface CameraView {
   lon: number;
   lat: number;

@@ -1,18 +1,5 @@
-import { z } from "zod";
-export const SceneSchema = z.object({
-  id: z.string(),
-  name: z.string(),
-  shortName: z.string(),
-  regionCode: z.string(),
-  center: z.tuple([z.number().min(-180).max(180), z.number().min(-90).max(90)]),
-  height: z.number().positive(),
-  /** 同源行政边界静态资源；未配置地区继续显示明确标记的示例边框。 */
-  boundaryUrl: z.string().regex(/^\/geojson\/[a-zA-Z0-9_-]+\.geojson$/).optional(),
-  modules: z.array(z.string()),
-  revision: z.string(),
-  source: z.literal("mock"),
-});
-export type SceneConfig = z.infer<typeof SceneSchema>;
+import type { SceneConfig } from "./scene";
+export { SceneSchema, type SceneConfig } from "./scene";
 export type LayerCategory = "weather" | "base" | "station";
 export interface LayerDescriptor {
   id: string;
@@ -20,6 +7,8 @@ export interface LayerDescriptor {
   category: LayerCategory;
   tag: string;
   datasetKey: string;
+  /** 站点Provider选用的观测字段；未指定时显示temperatureC。 */
+  valueField?: keyof WeatherObservation["elements"];
   rendererType: "station" | "grid" | "boundary" | "unavailable";
   opacitySupported: boolean;
   defaultOpacity: number;
@@ -40,6 +29,8 @@ export interface WeatherObservation {
     radarDbz?: number | null;
     cloudPercent?: number | null;
     windFieldMs?: number | null;
+    /** 气象风向：从正北顺时针计量的来向，单位度。 */
+    windDirectionDeg?: number | null;
     relativeHumidity?: number | null;
     forecastTempC?: number | null;
     gridValue?: number | null;
@@ -58,6 +49,12 @@ export interface Station {
   source: "mock";
   type: string;
 }
+export interface WeatherGridCell {
+  id: string;
+  bounds: [number, number, number, number];
+  value: number;
+  directionDeg?: number;
+}
 export interface DataFrame {
   storage?: "generated" | "ingested";
   source: "mock" | "tianqing" | "other";
@@ -66,7 +63,8 @@ export interface DataFrame {
   crs: "EPSG:4326";
   observations: WeatherObservation[];
   /** Mock 栅格图层使用的轻量格点；bounds 顺序为西、南、东、北。 */
-  gridCells?: { id: string; bounds: [number, number, number, number]; value: number }[];
+  gridCells?: WeatherGridCell[];
+  forecast?: { referenceTime: string; validTime: string; leadHours: number };
 }
 export interface SearchResult {
   layers: LayerDescriptor[];
@@ -320,7 +318,7 @@ export function demoProductGrid(
   const height = 0.88 / rows;
   const stormX = centerLon + Math.sin((hour + scene.regionCode.length) / 3) * 0.2;
   const stormY = centerLat + Math.cos((hour + 2) / 4) * 0.16;
-  const cells: { id: string; bounds: [number, number, number, number]; value: number }[] = [];
+  const cells: WeatherGridCell[] = [];
   for (let row = 0; row < rows; row++) {
     for (let column = 0; column < columns; column++) {
       const west = centerLon - 0.58 + column * width;
@@ -349,6 +347,7 @@ export function demoProductGrid(
         id: `${product}-${row}-${column}`,
         bounds: [west, south, west + width, south + height],
         value: Number(Math.max(0, Math.min(maximum, raw)).toFixed(1)),
+        ...(product === "wind-field" ? { directionDeg: Math.round((Math.atan2(lon - stormX, lat - stormY) * 180 / Math.PI + 450 + hour * 3) % 360) } : {}),
       });
     }
   }
@@ -376,6 +375,7 @@ export function demoProductObservations(
         radarDbz: product === "radar-grid" ? cell.value : null,
         cloudPercent: product === "satellite-cloud" ? cell.value : null,
         windFieldMs: product === "wind-field" ? cell.value : null,
+        windDirectionDeg: product === "wind-field" ? cell.directionDeg : null,
         relativeHumidity: product === "humidity-field" ? cell.value : null,
         forecastTempC: product === "forecast-hourly" ? cell.value : null,
         gridValue: product === "grid-analysis" ? cell.value : null,
@@ -393,23 +393,25 @@ export function productGridFromObservations(
 ) {
   const cellWidth = 1.16 / 10;
   const cellHeight = 0.88 / 8;
-  return observations.map((observation) => ({
-    id: observation.stationId,
-    bounds: [
-      observation.location.lon - cellWidth / 2,
-      observation.location.lat - cellHeight / 2,
-      observation.location.lon + cellWidth / 2,
-      observation.location.lat + cellHeight / 2,
-    ] as [number, number, number, number],
-    value: product === "radar-grid" ? observation.elements.radarDbz ?? 0
-      : product === "satellite-cloud" ? observation.elements.cloudPercent ?? 0
-        : product === "wind-field" ? observation.elements.windFieldMs ?? 0
-          : product === "humidity-field" ? observation.elements.relativeHumidity ?? 0
-            : product === "forecast-hourly" ? observation.elements.forecastTempC ?? 0
-              : product === "grid-analysis" ? observation.elements.gridValue ?? 0
-                : product === "warning-range" ? observation.elements.warningLevel ?? 0
-                  : observation.elements.simulationIntensity ?? 0,
-  }));
+  const keys: Record<MockGridProduct, keyof WeatherObservation["elements"]> = {
+    "radar-grid": "radarDbz", "satellite-cloud": "cloudPercent", "wind-field": "windFieldMs",
+    "humidity-field": "relativeHumidity", "forecast-hourly": "forecastTempC", "grid-analysis": "gridValue",
+    "warning-range": "warningLevel", "environment-simulation": "simulationIntensity",
+  };
+  return observations.flatMap((observation): WeatherGridCell[] => {
+    const value = observation.elements[keys[product]];
+    // 缺测不转换成0，否则无资料会伪装成晴空、静风或无预警。
+    if (value == null || !Number.isFinite(value)) return [];
+    const direction = observation.elements.windDirectionDeg;
+    return [{
+      id: observation.stationId,
+      bounds: [observation.location.lon - cellWidth / 2, observation.location.lat - cellHeight / 2,
+        observation.location.lon + cellWidth / 2, observation.location.lat + cellHeight / 2],
+      value,
+      ...(product === "wind-field" && direction != null && Number.isFinite(direction)
+        ? { directionDeg: ((direction % 360) + 360) % 360 } : {}),
+    }];
+  });
 }
 export * from "./business";
 
@@ -417,3 +419,22 @@ export { validateModelFile, validateUpload } from "./files";
 export * from "./ingestion";
 export * from "./mock-weather";
 export * from "./mock-devices";
+
+/** 仅供Mock逐小时预报使用：以有效日期北京时间00时为起报，避免把预报当观测。 */
+export function mockForecastMetadata(validTime: string) {
+  const valid = Date.parse(validTime);
+  if (!Number.isFinite(valid)) throw new Error("无效预报有效时间");
+  const hour = 3600000;
+  const reference = Math.floor((valid + 8 * hour) / (24 * hour)) * 24 * hour - 8 * hour;
+  return { referenceTime: new Date(reference).toISOString(), validTime: new Date(valid).toISOString(), leadHours: (valid - reference) / hour };
+}
+
+export * from "./scenario";
+
+/** 产品与展示图层共用一份对应关系，服务端查询和采集入口执行相同白名单。 */
+export function layerForProduct(productId: string) {
+  return productId === "surface-hourly" ? "temperature"
+    : Object.entries(MOCK_LAYER_PRODUCTS).find(([, product]) => product === productId)?.[0];
+}
+
+export * from "./licensing";

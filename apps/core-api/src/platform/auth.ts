@@ -42,6 +42,7 @@ export class AuthService {
     private repo: Repository,
     private accounts: Account[],
     private allowDemo: boolean,
+    private platformAdmins: readonly string[] = [],
   ) {}
   /** 校验账号、限制连续失败次数，并签发可撤销的服务端会话。 */
   async login(id: string, password: string, address: string) {
@@ -84,6 +85,8 @@ export class AuthService {
         role: account.role,
         scenes: account.scenes,
         kind: "account",
+        platformAdmin:
+          account.role === "admin" && this.platformAdmins.includes(account.id),
       },
       digest(account.passwordHash),
     );
@@ -111,6 +114,15 @@ export class AuthService {
   /** 随机令牌只返回给浏览器；数据库仅保存令牌摘要和到期时间。 */
   private async issue(user: Principal, credentialVersion?: string) {
     const token = randomBytes(32).toString("hex");
+    if (user.kind === "demo")
+      await this.repo.saveConfiguration(
+        user.tenantId,
+        "demo-session-grant",
+        0,
+        { expiresAt: Date.now() + 8 * 3600000 },
+        user.id,
+        "auth.demo-grant",
+      );
     await this.repo.putSession(digest(token), {
       user,
       credentialVersion,
@@ -135,6 +147,8 @@ export class AuthService {
       tenantId: account.tenantId,
       role: account.role,
       scenes: account.scenes,
+      platformAdmin:
+        account.role === "admin" && this.platformAdmins.includes(account.id),
     };
   }
   /** 删除服务端会话并记录退出审计，使令牌不能再次使用。 */

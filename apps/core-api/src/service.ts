@@ -8,6 +8,8 @@ import {
   demoProductGrid,
   MOCK_LAYER_PRODUCTS,
   demoDevices,
+  mockForecastMetadata,
+  type SceneConfig,
 } from "@dtv/contracts";
 import xian from "../../../scenarios/xian.json";
 import taiyuan from "../../../scenarios/taiyuan.json";
@@ -22,9 +24,8 @@ export class DemoService {
     if (!scene) throw new NotFoundException("场景不存在");
     return scene;
   }
-  layers(sceneId: string) {
-    const scene = this.scene(sceneId);
-    return LAYERS.map((layer) => layer.id === "boundary" && scene.boundaryUrl
+  layers(sceneId: string, scene: SceneConfig = this.scene(sceneId)) {
+    return LAYERS.filter((layer) => !scene.enabledLayers || scene.enabledLayers.includes(layer.id)).map((layer) => layer.id === "boundary" && scene.boundaryUrl
       ? { ...layer, name: `${scene.name}行政边界`, tag: "区县", reason: "用户提供的行政边界数据" }
       : layer);
 
@@ -34,19 +35,18 @@ export class DemoService {
     if (!layer) throw new NotFoundException("图层不存在");
     return layer;
   }
-  stations(sceneId: string) {
-    return demoStations(this.scene(sceneId));
+  stations(sceneId: string, scene: SceneConfig = this.scene(sceneId)) {
+    return demoStations(scene);
   }
-  devices(sceneId: string, now = new Date()) {
-    return demoDevices(this.scene(sceneId), now);
+  devices(sceneId: string, now = new Date(), scene: SceneConfig = this.scene(sceneId)) {
+    return demoDevices(scene, now);
   }
   times(id: string) {
     this.layer(id);
     return DEMO_TIMES;
   }
-  data(id: string, sceneId: string, time: string) {
-    const layer = this.layer(id),
-      scene = this.scene(sceneId);
+  data(id: string, sceneId: string, time: string, scene: SceneConfig = this.scene(sceneId)) {
+    const layer = this.layer(id);
     if (!layer.available) throw new NotFoundException(layer.reason);
     if (!DEMO_TIMES.includes(time))
       throw new NotFoundException("对应时次无数据");
@@ -57,12 +57,12 @@ export class DemoService {
       observedAt: time,
       unit: layer.unit,
       crs: "EPSG:4326" as const,
+      ...(id === "forecast" ? { forecast: mockForecastMetadata(time) } : {}),
       observations: mockProduct ? [] : demoObservations(scene, time),
       ...(mockProduct ? { gridCells: demoProductGrid(scene, time, mockProduct) } : {}),
     };
   }
-  search(sceneId: string, q: string) {
-    this.scene(sceneId);
+  search(sceneId: string, q: string, scene: SceneConfig = this.scene(sceneId)) {
     if (typeof q !== "string") throw new BadRequestException("搜索词格式错误");
     q = q.trim();
     if (q.length > 100) throw new BadRequestException("搜索词过长");
@@ -85,8 +85,8 @@ export class DemoService {
       };
     }
     return {
-      layers: LAYERS.filter((x) => x.name.includes(q)),
-      stations: this.stations(sceneId).filter(
+      layers: this.layers(sceneId, scene).filter((x) => x.name.includes(q)),
+      stations: this.stations(sceneId, scene).filter(
         (x) => x.name.includes(q) || x.id.includes(q),
       ),
     };

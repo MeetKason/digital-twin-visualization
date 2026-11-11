@@ -15,6 +15,7 @@ export function Modal({
     <AntModal
       open
       centered
+      closable={{ "aria-label": `关闭${title}` }}
       title={title}
       className="business-modal"
       width={600}

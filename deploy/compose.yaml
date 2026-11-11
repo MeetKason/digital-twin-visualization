@@ -27,15 +27,20 @@ services:
       dockerfile: deploy/server.Dockerfile
     command: ["node", "dist/server/core-api/src/main.js"]
     environment:
+      DTV_COMMIT: ${DTV_VERSION:-}
       HOST: "0.0.0.0"
       PORT: "3001"
-      DEPLOYMENT_MODE: "demo"
+      DEPLOYMENT_MODE: ${DEPLOYMENT_MODE:-demo}
       PGHOST: postgres
       PGPORT: "5432"
       PGDATABASE: dtv
       PGUSER: dtv
       PGPASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in deploy/.env}
       AUTH_USERS_FILE: ${AUTH_USERS_FILE:-}
+      PLATFORM_ADMIN_IDS: ${PLATFORM_ADMIN_IDS:-}
+      LICENSE_REQUIRED: ${LICENSE_REQUIRED:-}
+      LICENSE_TRUST_ROOTS_FILE: /run/dtv-licensing/trust-roots.json
+      DTV_EXTENSION_SERVICES_FILE: ${DTV_EXTENSION_SERVICES_FILE:-}
       DEMO_ENABLED: ${DEMO_ENABLED:-true}
       COOKIE_SECURE: ${COOKIE_SECURE:-false}
       TRUST_PROXY_HOPS: "1"
@@ -44,6 +49,7 @@ services:
       CESIUM_ION_ACCESS_TOKEN: ${CESIUM_ION_ACCESS_TOKEN:-}
     volumes:
       - ./auth:/run/dtv-auth:rw
+      - ./licensing:/run/dtv-licensing:ro
       - ./tianqing:/run/dtv-tianqing:ro
       - platform-files:/app/.data/files
     depends_on:
@@ -60,13 +66,19 @@ services:
     image: dtv-server:${DTV_VERSION:-0.3.0}
     command: ["node", "dist/server/worker/src/main.js"]
     environment:
+      DTV_COMMIT: ${DTV_VERSION:-}
       PGHOST: postgres
       PGPORT: "5432"
       PGDATABASE: dtv
       PGUSER: dtv
       PGPASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in deploy/.env}
       DTV_TIANQING_CONFIG_FILE: /run/dtv-tianqing/sources.json
+      DEPLOYMENT_MODE: ${DEPLOYMENT_MODE:-demo}
+      DEMO_ENABLED: ${DEMO_ENABLED:-true}
+      LICENSE_REQUIRED: ${LICENSE_REQUIRED:-}
+      LICENSE_TRUST_ROOTS_FILE: /run/dtv-licensing/trust-roots.json
     volumes:
+      - ./licensing:/run/dtv-licensing:ro
       - ./tianqing:/run/dtv-tianqing:ro
     depends_on:
       postgres:

@@ -1,6 +1,15 @@
+import {
+  TenantLicensing,
+  loadLicenseRoots,
+} from "../../core-api/src/platform/licensing";
+import { ScenarioCatalog } from "../../core-api/src/platform/scenarios";
+import { PostgresRepository } from "../../core-api/src/platform/repository";
 import { Pool } from "pg";
 import { PostgresIngestionStore } from "../../../packages/ingestion/src/postgres";
-import { ConfiguredSceneConnector, QueueWorker } from "../../../packages/ingestion/src/worker";
+import {
+  ConfiguredSceneConnector,
+  QueueWorker,
+} from "../../../packages/ingestion/src/worker";
 import { loadTianqingConfig } from "../../../packages/ingestion/src/tianqing";
 if (!process.env.DATABASE_URL && !process.env.PGHOST)
   throw new Error(
@@ -17,7 +26,28 @@ const tianqing = loadTianqingConfig();
 const store = new PostgresIngestionStore(pool, (sceneId) =>
   tianqing.sourceForScene(sceneId),
 );
-const worker = new QueueWorker(store, new ConfiguredSceneConnector(tianqing));
+const repo = new PostgresRepository(pool);
+const scenarios = new ScenarioCatalog(repo);
+const licensing = new TenantLicensing(
+  repo,
+  loadLicenseRoots(),
+  process.env.LICENSE_REQUIRED === "true" ||
+    (process.env.LICENSE_REQUIRED !== "false" &&
+      process.env.DEPLOYMENT_MODE === "production"),
+);
+const worker = new QueueWorker(
+  store,
+  new ConfiguredSceneConnector(
+    tianqing,
+    (id, tenant) => scenarios.active(tenant, id),
+    async (tenant, id, product) => {
+      const allowDemo =
+        process.env.DEMO_ENABLED !== "false" &&
+        process.env.DEPLOYMENT_MODE !== "production";
+      await licensing.requireTask(tenant, id, product, allowDemo);
+    },
+  ),
+);
 let stopping = false;
 process.on("SIGTERM", () => {
   stopping = true;

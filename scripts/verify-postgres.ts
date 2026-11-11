@@ -1,5 +1,7 @@
+import { TenantLicensing } from "../apps/core-api/src/platform/licensing";
+import { LicensePayloadSchema, licenseCanonical } from "../packages/contracts/src/licensing";
 import { spawn } from "node:child_process";
-import { randomBytes, randomUUID } from "node:crypto";
+import { randomBytes, randomUUID, generateKeyPairSync, sign } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { Pool } from "pg";
 import assert from "node:assert/strict";
@@ -89,6 +91,33 @@ try {
   await pool.query(await readFile("deploy/migrations/006_ingestion_products.sql", "utf8"));
   await pool.query(await readFile("deploy/migrations/006_ingestion_products.sql", "utf8"));
   assert.equal((await pool.query("SELECT product_id FROM weather_observation WHERE tenant_id='legacy-product'")).rows[0].product_id, "surface-hourly");
+  await pool.query(await readFile("deploy/migrations/007_runtime_configuration.sql", "utf8"));
+  await pool.query(await readFile("deploy/migrations/007_runtime_configuration.sql", "utf8"));
+
+  // 验证真实PostgreSQL持久化的离线许可证可被另一个实例读取并立即响应吊销。
+  const pair = generateKeyPairSync("ed25519"), roots = { verify: pair.publicKey.export({format:"jwk"}) };
+  const payload = LicensePayloadSchema.parse({formatVersion:1,licenseId:"pg-license",tenantId:"license-tenant",customer:"验证客户",project:{id:"pg",name:"验证项目"},plan:"basic",issuedAt:new Date(Date.now()-1000).toISOString(),notBefore:new Date(Date.now()-1000).toISOString(),expiresAt:new Date(Date.now()+60000).toISOString(),modules:["map","stations"],datasets:["stations","surface-hourly"],regions:["xian"],maxAccounts:2});
+  const cert = {keyId:"verify",payload,signature:sign(null,Buffer.from(licenseCanonical("verify",payload)),pair.privateKey).toString("base64")};
+  const licensing = new TenantLicensing(new PostgresRepository(pool),roots,true);
+  await licensing.import("license-tenant",0,cert,"platform-admin");
+  const another = new TenantLicensing(new PostgresRepository(pool),roots,true);
+  assert.equal((await another.status("license-tenant")).state,"active");
+  assert.equal((await another.status("other-tenant")).state,"missing");
+  await assert.rejects(another.require("license-tenant","xian","devices"));
+  await assert.rejects(licensing.import("license-tenant",1,cert,"platform-admin"));
+  await licensing.revoke("license-tenant",1,"platform-admin");
+  assert.equal((await another.status("license-tenant")).state,"revoked");
+  assert.equal((await new PostgresRepository(pool).audit("license-tenant")).length,3);
+  const configRepo = new PostgresRepository(pool);
+  await configRepo.saveConfiguration("config-a", "scenario:xian", 0, { draft: "one" }, "admin", "scenario.draft");
+  assert.equal((await configRepo.readConfiguration("config-a", "scenario:xian"))?.revision, 1);
+  assert.equal(await configRepo.readConfiguration("config-b", "scenario:xian"), null);
+  const conflictingConfigs = await Promise.allSettled([
+    configRepo.saveConfiguration("config-a", "scenario:xian", 1, { draft: "two" }, "admin", "scenario.draft"),
+    configRepo.saveConfiguration("config-a", "scenario:xian", 1, { draft: "three" }, "admin", "scenario.draft"),
+  ]);
+  assert.equal(conflictingConfigs.filter((result) => result.status === "fulfilled").length, 1);
+  assert.equal((await configRepo.audit("config-a")).length, 2);
   const migratedState = (await pool.query<{ state: { jobs: { productId: string }[]; productSchedules: object; productProgress: object } }>("SELECT state FROM ingestion_state WHERE tenant_id='legacy-product'")).rows[0].state;
   assert.equal(migratedState.jobs[0].productId, "surface-hourly");
   assert.deepEqual(migratedState.productSchedules, {});
@@ -197,7 +226,7 @@ try {
   assert.equal((projected?.data as { bookmarks: unknown[] }).bookmarks.length, 1);
   assert.equal((projected?.data as { plans: { points: unknown[] }[] }).plans[0].points.length, 1);
   console.log(
-    "PostgreSQL 16 verification passed: migration, concurrent CAS, normalized entity reads/writes, two-person publication approval/activation/rollback, tenant isolation, audit, session restore/revocation.",
+    "PostgreSQL 16 verification passed: migration, concurrent CAS, normalized entity reads/writes, two-person publication approval/activation/rollback, tenant isolation, signed tenant license import/revocation across instances, audit, session restore/revocation.",
   );
 } finally {
   await pool?.end();

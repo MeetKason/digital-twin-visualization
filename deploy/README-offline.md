@@ -42,7 +42,7 @@ DTV_VERSION=0.3.0 docker compose -f deploy/compose.yaml up -d --no-build --pull 
 
 服务器需预先安装 Docker Engine 和 Compose，镜像必须匹配目标 CPU 架构。本流程不安装软件包，也不从网络拉取镜像。应用自带的静态资源无需浏览器访问公网；配置的底图、地形或模型服务必须能从相应运行环境访问。
 
-默认 Web 绑定 `127.0.0.1:8080`，用于接入服务器反向代理。只有在防火墙和上游 TLS 终止配置完成后，才设置 `WEB_BIND_ADDRESS=0.0.0.0` 和适用的 `WEB_PORT`。用户通过 HTTPS 访问时必须设置 `COOKIE_SECURE=true`。示例环境关闭演示登录并启用安全 Cookie；仅在隔离的本地评估环境中，才设置 `DEMO_ENABLED=true` 和 `COOKIE_SECURE=false`。接入天地图时，将浏览器端 Key 配置在 `deploy/.env` 的 `TDT_API_KEY` 中。已登录用户的地图通过 API 配置接口获取该 Key，并由浏览器直接请求卫星 WMTS 和 `mapservice/swdx` 三维高程服务；浏览器端 Key 会出现在请求中，请在天地图控制台限制授权域名并允许实际页面来源。高程瓦片会在浏览器解压、解码为 Cesium Provider，场景采用 1.2 倍垂直夸张并开启光照。没有天地图 Key 时，可用内网 `terrainUrl` 或 Cesium ion 后备地形；ion 令牌放在 `CESIUM_ION_ACCESS_TOKEN`，仅授权必要资源并限制来源。所有地形源不可用时，地图回退到椭球并提示。生产数据、许可证、容量、安全控制和目标主机验收完成前，API 会拒绝 `DEPLOYMENT_MODE=production`，因此本安装包运行于演示/Mock 模式。
+默认 Web 绑定 `127.0.0.1:8080`，用于接入服务器反向代理。只有在防火墙和上游 TLS 终止配置完成后，才设置 `WEB_BIND_ADDRESS=0.0.0.0` 和适用的 `WEB_PORT`。用户通过 HTTPS 访问时必须设置 `COOKIE_SECURE=true`。示例环境关闭演示登录并启用安全 Cookie；仅在隔离的本地评估环境中，才设置 `DEMO_ENABLED=true` 和 `COOKIE_SECURE=false`。接入天地图时，将浏览器端 Key 配置在 `deploy/.env` 的 `TDT_API_KEY` 中。已登录用户的地图通过 API 配置接口获取该 Key，并由浏览器直接请求卫星 WMTS 和 `mapservice/swdx` 三维高程服务；浏览器端 Key 会出现在请求中，请在天地图控制台限制授权域名并允许实际页面来源。高程瓦片会在浏览器解压、解码为 Cesium Provider，场景采用 1.2 倍垂直夸张并开启光照。没有天地图 Key 时，可用内网 `terrainUrl` 或 Cesium ion 后备地形；ion 令牌放在 `CESIUM_ION_ACCESS_TOKEN`，仅授权必要资源并限制来源。所有地形源不可用时，地图回退到椭球并提示。签名许可证和模块授权已实现；生产数据、容量、安全控制和目标主机验收完成前，API 会拒绝 `DEPLOYMENT_MODE=production`，因此本安装包运行于演示/Mock 模式。
 
 ## 升级与回滚
 
@@ -53,3 +53,14 @@ DTV_VERSION=0.3.0 docker compose -f deploy/compose.yaml up -d --no-build --pull 
 5. 回滚时停止服务，使用 `CONFIRM_RESTORE=yes scripts/restore.sh ...` 恢复升级前备份，再启动保留的旧镜像版本。数据库降级脚本不用于回滚；回滚方式是恢复完整备份。
 
 升级或回滚时都不要删除 PostgreSQL 数据卷。现场验收前，应在与目标环境操作系统、Docker 版本、架构、挂载权限和本地数据集一致的隔离测试主机上，完整测试安装包、Compose 配置、数据库迁移、备份和恢复。
+
+
+## 租户许可证与扩展模板
+
+当前使用`DEPLOYMENT_MODE=demo`并设置`LICENSE_REQUIRED=true`、`DEMO_ENABLED=false`验收真实账号的授权，不打开尚未完成的production模式。配置`PLATFORM_ADMIN_IDS`为维护账号ID，账号本身须为启用的admin；仅平台管理员能导入/吊销租户许可证。
+
+签发在仓库外保存私钥的维护机完成。仅将发行公钥JSON复制为`deploy/licensing/trust-roots.json`，不要复制私钥。无许可证时管理员仍可登录授权修复页；在“系统管理 → 租户产品授权”导入证书后按套餐访问业务。API与Worker须挂载相同公钥、配置相同LICENSE_REQUIRED与DEMO_ENABLED。已有服务器先成套备份并执行007迁移；许可证复用该配置表，不新增迁移。公钥和扩展服务配置变更需重启相应服务。
+
+离线包包含`extensions/backend-template`的独立Node/Docker模板、`sdk/packages`的SDK/契约/插件示例源码、`sdk/scripts/license-tool.ts`和无签名载荷示例。前端插件构建及签发工具需要维护机已准备的本项目Node依赖/离线缓存；这些源码不是另一个可直接npm启动的完整主工程。独立后端模板自身没有npm运行依赖。现场接入仍需编写客户适配逻辑并完成真实接口验收。
+
+打包仅复制公钥和示例源码，不复制现场扩展映射中的令牌、真实账号、实际天擎连接配置或签发私钥。服务器扩展映射可放`deploy/licensing/extension-services.json`，其中只有tokenEnv名字，实际令牌需显式注入core-api容器环境；模板服务仅加入内部网络。

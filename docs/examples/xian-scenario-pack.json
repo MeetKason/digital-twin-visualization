@@ -1,0 +1,50 @@
+{
+  "formatVersion": 1,
+  "coreApi": 1,
+  "description": "仅用于Mock演示的运行时场景包；不含账号、令牌、业务档案或媒体。",
+  "scene": {
+    "id": "xian",
+    "name": "西安场景包示例",
+    "shortName": "西安",
+    "regionCode": "610100",
+    "center": [
+      108.94,
+      34.34
+    ],
+    "height": 145000,
+    "modules": [
+      "station",
+      "weather"
+    ],
+    "revision": "example-v1",
+    "source": "mock",
+    "boundaryUrl": "/geojson/610100.geojson",
+    "enabledLayers": [
+      "boundary",
+      "stations",
+      "temperature",
+      "rainfall",
+      "radar",
+      "satellite",
+      "wind",
+      "forecast"
+    ],
+    "ui": {
+      "menus": [
+        "home",
+        "roam",
+        "station",
+        "weather",
+        "settings"
+      ],
+      "theme": {
+        "primary": "#1263c4",
+        "navy": "#1c466c"
+      },
+      "layout": {
+        "panelWidth": 288,
+        "timelineHeight": 120
+      }
+    }
+  }
+}

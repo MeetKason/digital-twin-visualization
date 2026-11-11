@@ -1,3 +1,6 @@
+import { licenseIssuer } from "./helpers/licenses";
+import { LAYERS, DEMO_TIMES } from "@dtv/contracts";
+import xianScene from "../scenarios/xian.json";
 import { it, expect } from "vitest";
 import { spawn, type ChildProcess } from "node:child_process";
 import { mkdtemp, writeFile, rm, readdir } from "node:fs/promises";
@@ -10,6 +13,8 @@ import { hashPassword } from "../apps/core-api/src/platform/auth";
 import { isPublicationCohort } from "../apps/core-api/src/platform/platform";
 it("真实 HTTP：跨租户隔离、角色拒写、CSRF、并发修订、服务重启和注销", async () => {
   const dir = await mkdtemp(join(tmpdir(), "dtv-http-"));
+  const issuer = licenseIssuer();
+  await writeFile(join(dir,"license-roots.json"),JSON.stringify(issuer.roots));
   const server = createServer();
   server.listen(0, "127.0.0.1");
   await once(server, "listening");
@@ -70,6 +75,9 @@ it("真实 HTTP：跨租户隔离、角色拒写、CSRF、并发修订、服务�
           DATABASE_URL: "",
           PGHOST: "",
           TRUST_PROXY_HOPS: "1",
+          PLATFORM_ADMIN_IDS: "alpha-admin",
+          LICENSE_REQUIRED: "false",
+          LICENSE_TRUST_ROOTS_FILE: join(dir,"license-roots.json"),
         },
         stdio: ["ignore", "pipe", "pipe"],
       },
@@ -581,6 +589,64 @@ it("真实 HTTP：跨租户隔离、角色拒写、CSRF、并发修订、服务�
     expect((await call("/scenes/xian/publications/rollback", a.cookie, "POST", {
       targetRevision: 1, expectedRevision: rollbackState.revision,
     })).status).toBe(409);
+    // 自定义地区无需改代码；草稿不进入目录，发布后按账号地区授权访问。
+    expect((await call("/admin/accounts", a.cookie, "POST", { id: "custom-admin", tenantId: "custom-tenant", role: "admin", scenes: ["custom-city"], password: "custom-test-password-123" })).status).toBe(201);
+    const custom = await login("custom-admin", "custom-test-password-123");
+    expect(await (await call("/scenes", custom.cookie)).json()).toEqual([]);
+    const pack = { formatVersion: 1, coreApi: 1, scene: { ...xianScene, id: "custom-city", name: "自定义地区", shortName: "新区", center: [116.4, 39.9], boundaryUrl: undefined,
+      enabledLayers: LAYERS.filter((layer) => layer.id !== "radar").map((layer) => layer.id) } };
+    const customPath = "/scenes/custom-city/scenario-pack";
+    expect((await call(customPath, custom.cookie, "PUT", { revision: 0, pack }, { Origin: "https://evil.invalid" })).status).toBe(403);
+    expect((await call(customPath, custom.cookie, "PUT", { revision: 0, pack })).status).toBe(200);
+    expect(await (await call("/scenes", custom.cookie)).json()).toEqual([]);
+    expect((await call(customPath + "/publish", custom.cookie, "POST", { revision: 1 })).status).toBe(201);
+    expect((await (await call("/scenes", custom.cookie)).json())[0].id).toBe("custom-city");
+    expect((await call(customPath, v.cookie)).status).toBe(403);
+    expect((await call(customPath, b.cookie)).status).toBe(403);
+    const customTime = encodeURIComponent(DEMO_TIMES[0]);
+    expect((await call(`/layers/radar/data?sceneId=custom-city&time=${customTime}`, custom.cookie)).status).toBe(403);
+    expect((await call(`/layers/radar/times?sceneId=custom-city`, custom.cookie)).status).toBe(403);
+    expect((await call(`/scenes/custom-city/ingestion/observations?productId=radar-grid&time=${customTime}`, custom.cookie)).status).toBe(403);
+    expect((await call("/scenes/custom-city/ingestion/jobs", custom.cookie, "POST", { source: "mock", productId: "radar-grid", startTime: DEMO_TIMES[0], endTime: DEMO_TIMES[0] })).status).toBe(403);
+    const customFrame = await (await call(`/layers/temperature/data?sceneId=custom-city&time=${customTime}`, custom.cookie)).json();
+    expect(customFrame.observations[1].location).toMatchObject({ lon: 116.4, lat: 39.9 });
+    expect((await call("/scenes/custom-city/ingestion/jobs", custom.cookie, "POST", { source: "mock", productId: "surface-hourly", startTime: DEMO_TIMES[0], endTime: DEMO_TIMES[0] })).status).toBe(201);
+    let customJobDone = false;
+    for (let attempt = 0; attempt < 30; attempt++) {
+      const state = await (await call("/scenes/custom-city/ingestion", custom.cookie)).json();
+      if (state.jobs[0]?.status === "succeeded") { customJobDone = true; break; }
+      await new Promise((resolve) => setTimeout(resolve, 100));
+    }
+    expect(customJobDone).toBe(true);
+    expect((await call(customPath + "/publish", custom.cookie, "POST", { revision: 1 })).status).toBe(409);
+    // 产品授权不能由租户管理员、请求中的tenantId或隐藏菜单绕过。
+    const licensePath="/admin/tenants/alpha/authorization";
+    const certificate=issuer.issue({plan:"basic",modules:["map","stations"],datasets:["stations","surface-hourly"],regions:["xian"]});
+    expect((await call("/admin/tenants",b.cookie)).status).toBe(403);
+    expect((await call(licensePath,b.cookie,"PUT",{revision:0,certificate})).status).toBe(403);
+    expect((await call(licensePath,a.cookie,"PUT",{revision:0,certificate},{Origin:"https://evil.invalid"})).status).toBe(403);
+    expect((await call(licensePath,a.cookie,"PUT",{revision:0,certificate})).status).toBe(200);
+    expect((await call(licensePath,a.cookie,"PUT",{revision:0,certificate:issuer.issue()})).status).toBe(409);
+    expect((await (await call("/authorization",a.cookie)).json()).state).toBe("active");
+    expect((await (await call("/scenes",a.cookie)).json()).map((s:{id:string})=>s.id)).toEqual(["xian"]);
+    expect((await call("/scenes/xian/devices",a.cookie)).status).toBe(403);
+    expect((await call("/scenes/taiyuan/business",a.cookie)).status).toBe(403);
+    expect((await call("/scenes/xian/files",a.cookie)).status).toBe(403);
+    expect((await call("/scenes/xian/plugins/authorization",a.cookie)).status).toBe(403);
+    expect((await call(`/scenes/xian/plugins/data?productId=surface-hourly&time=${customTime}`,a.cookie)).status).toBe(403);
+    expect((await call(`/layers/radar/data?sceneId=xian&time=${customTime}`,a.cookie)).status).toBe(403);
+    expect((await call("/scenes/xian/ingestion/products",a.cookie)).status).toBe(403);
+    expect((await call("/scenes/xian/ingestion/jobs",a.cookie,"POST",{productId:"surface-hourly",startTime:DEMO_TIMES[0],endTime:DEMO_TIMES[0]})).status).toBe(403);
+    expect((await call("/scenes/xian/devices",b.cookie)).status).toBe(200);
+    const basic=await(await call("/scenes/xian/business",a.cookie)).json();
+    expect(basic.data.assets).toEqual([]);expect(basic.data.plans).toEqual([]);expect(basic.data.bookmarks).toEqual([]);
+    expect((await call(licensePath+"/revoke",a.cookie,"POST",{revision:1})).status).toBe(201);
+    expect((await call("/scenes/xian/stations",a.cookie)).status).toBe(403);
+    expect((await call("/authorization",a.cookie)).status).toBe(200);
+    await stop();await start();
+    expect((await(await call("/authorization",a.cookie)).json()).state).toBe("revoked");
+    expect((await call(licensePath,a.cookie,"PUT",{revision:2,certificate})).status).toBe(409);
+    expect((await call(licensePath,a.cookie,"PUT",{revision:2,certificate:issuer.issue()})).status).toBe(200);
     await call("/auth/logout", a.cookie, "POST");
     expect((await call("/scenes", a.cookie)).status).toBe(401);
     for (let i = 0; i < 5; i++)

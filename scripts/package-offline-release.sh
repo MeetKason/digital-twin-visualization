@@ -5,7 +5,18 @@ release_dir="${2:?用法: scripts/package-offline-release.sh VERSION OUTPUT_DIR}
 [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+([.-][A-Za-z0-9.-]+)?$ ]] || { echo "版本号格式错误" >&2; exit 2; }
 repo="$(cd "$(dirname "$0")/.." && pwd)"
 mkdir -p "$release_dir/deploy" "$release_dir/deploy/auth" "$release_dir/deploy/tianqing" "$release_dir/scripts"
-mkdir -p "$release_dir/deploy/tianqing"
+# 只交付公钥与无凭据模板，不复制现场账号、真实天擎配置或扩展令牌。
+mkdir -p "$release_dir/deploy/licensing" "$release_dir/extensions" "$release_dir/sdk/packages" "$release_dir/sdk/scripts" "$release_dir/docs/examples"
+cp "$repo/deploy/licensing/trust-roots.json" "$release_dir/deploy/licensing/"
+cp -R "$repo/extensions/backend-template" "$release_dir/extensions/"
+for package in sdk contracts plugins; do
+  mkdir -p "$release_dir/sdk/packages/$package"
+  cp "$repo/packages/$package/package.json" "$release_dir/sdk/packages/$package/"
+  cp -R "$repo/packages/$package/src" "$release_dir/sdk/packages/$package/"
+done
+cp "$repo/packages/plugins/catalog.json" "$release_dir/sdk/packages/plugins/"
+cp "$repo/scripts/license-tool.ts" "$release_dir/sdk/scripts/"
+cp "$repo/docs/examples/tenant-license-payload.json" "$release_dir/docs/examples/"
 cp "$repo/deploy/compose.yaml" "$repo/deploy/config.json" "$release_dir/deploy/"
 cp -R "$repo/deploy/migrations" "$release_dir/deploy/"
 cp "$repo/deploy/auth/.gitkeep" "$release_dir/deploy/auth/"

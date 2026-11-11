@@ -11,6 +11,7 @@ export interface Principal {
   role: Role;
   scenes: string[];
   kind: "account" | "demo";
+  platformAdmin?: boolean;
 }
 export interface Session {
   user: Principal;
@@ -31,6 +32,8 @@ export interface AuditEntry {
   at: string;
 }
 export interface Repository {
+  readConfiguration(tenant: string, key: string): Promise<Revision | null>;
+  saveConfiguration(tenant: string, key: string, expected: number, data: unknown, actor: string, action: string): Promise<Revision>;
   readBusiness(tenant: string, scene: string): Promise<Revision | null>;
   saveBusiness(
     tenant: string,
@@ -69,6 +72,7 @@ export interface Repository {
   publicationFileReferences(tenant: string, scene: string): Promise<string[]>;
 }
 interface DiskState {
+  configurations?: Record<string, Revision>;
   business: Record<string, StoredRevision>;
   sessions: Record<string, Session>;
   audit: AuditEntry[];
@@ -87,58 +91,39 @@ const entry = (e: Omit<AuditEntry, "id" | "at">): AuditEntry => ({
 export class FileRepository implements Repository {
   private queue: Promise<unknown> = Promise.resolve();
   constructor(private directory: string) {}
-  private async read(): Promise<DiskState> {
-    try {
-      const parsed = JSON.parse(
-        await readFile(join(this.directory, "platform.json"), "utf8"),
-      );
-      const business: DiskState["business"] = {};
-      for (const [key, pointer] of Object.entries(
-        (parsed.business ?? {}) as Record<string, StoredRevision>,
-      )) {
-        if (!pointer.bundleId) {
-          business[key] = pointer;
-          continue;
-        }
-        const bundle = join(
-          this.directory,
-          "business-bundles",
-          createHash("sha256").update(key).digest("hex"),
-          pointer.bundleId,
-        );
-        const readArray = async (name: string) =>
-          JSON.parse(await readFile(join(bundle, `${name}.json`), "utf8"));
-        const metadata = JSON.parse(
-          await readFile(join(bundle, "metadata.json"), "utf8"),
-        );
-        const data = { ...metadata.values } as Record<string, unknown>;
-        const entityFields = new Set<string>(metadata.entityFields ?? []);
-        for (const name of ["stations", "assets", "bookmarks", "plans"])
-          if (entityFields.has(name)) data[name] = await readArray(name);
-        business[key] = {
-          revision: pointer.revision,
-          bundleId: pointer.bundleId,
-          data,
-        };
-      }
-      return {
-        ...parsed,
-        sessions: parsed.sessions ?? {},
-        audit: parsed.audit ?? [],
-        business,
-        publications: parsed.publications ?? [],
-        activePublications: parsed.activePublications ?? {},
-      };
-    } catch (e) {
-      if ((e as NodeJS.ErrnoException).code === "ENOENT")
-        return { business: {}, sessions: {}, audit: [], activePublications: {} };
-      throw e;
+  /** 只读根索引；会话、审计和配置查询不再加载所有租户的业务文件。 */
+  private async read(businessKey?: string): Promise<DiskState> {
+    let text: string;
+    try { text = await readFile(join(this.directory, "platform.json"), "utf8"); }
+    catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") return { business: {}, sessions: {}, audit: [] };
+      throw error;
     }
+    const parsed = JSON.parse(text) as DiskState;
+    const state: DiskState = { ...parsed, business: parsed.business ?? {}, sessions: parsed.sessions ?? {}, audit: parsed.audit ?? [], publications: parsed.publications ?? [], activePublications: parsed.activePublications ?? {} };
+    const pointer = businessKey ? state.business[businessKey] : undefined;
+    if (businessKey && pointer?.bundleId) {
+      if (!/^[a-zA-Z0-9_-]+$/.test(pointer.bundleId)) throw new Error("业务资料索引无效，请联系维护人员");
+      const bundle = join(this.directory, "business-bundles", createHash("sha256").update(businessKey).digest("hex"), pointer.bundleId);
+      try {
+        const metadata = JSON.parse(await readFile(join(bundle, "metadata.json"), "utf8"));
+        const data: Record<string, unknown> = { ...metadata.values };
+        const fields = new Set<string>(metadata.entityFields ?? []);
+        for (const name of ["stations", "assets", "bookmarks", "plans"])
+          if (fields.has(name)) data[name] = JSON.parse(await readFile(join(bundle, `${name}.json`), "utf8"));
+        state.business[businessKey] = { ...pointer, data };
+      } catch (error) {
+        // 只有根索引不存在代表新仓库；缺失业务包绝不能当作全仓为空，避免后续写入抹掉其他资料。
+        if ((error as NodeJS.ErrnoException).code === "ENOENT") throw new Error("业务资料包不完整，请从成套备份恢复");
+        throw error;
+      }
+    }
+    return state;
   }
   /** 文件仓库仅供单进程开发使用；队列串行修改并以原子指针保存业务修订。 */
-  private async mutate<T>(fn: (state: DiskState) => T): Promise<T> {
+  private async mutate<T>(fn: (state: DiskState) => T, businessKey?: string): Promise<T> {
     const task = this.queue.then(async () => {
-      const state = await this.read(),
+      const state = await this.read(businessKey),
         result = fn(state);
       await this.writeState(state);
       return result;
@@ -150,6 +135,11 @@ export class FileRepository implements Repository {
   private async writeState(state: DiskState) {
     const pointers: Record<string, { revision: number; bundleId: string }> = {};
     for (const [key, revision] of Object.entries(state.business)) {
+      // 已提交包不可变，复用指针即可；不访问无关租户的磁盘文件。
+      if (revision.bundleId) {
+        pointers[key] = { revision: revision.revision, bundleId: revision.bundleId };
+        continue;
+      }
       const bundleId = revision.bundleId ?? `r${revision.revision}-${randomUUID()}`;
       const scope = createHash("sha256").update(key).digest("hex");
       const parent = join(this.directory, "business-bundles", scope);
@@ -193,14 +183,30 @@ export class FileRepository implements Repository {
   private key(tenant: string, scene: string) {
     return JSON.stringify([tenant, scene]);
   }
+  async readConfiguration(tenant: string, key: string) {
+    await this.queue;
+    return (await this.read()).configurations?.[this.key(tenant, key)] ?? null;
+  }
+  /** 配置与业务实体分开存储；CAS与审计在同一次原子指针替换内完成。 */
+  async saveConfiguration(tenant: string, key: string, expected: number, data: unknown, actor: string, action: string) {
+    return this.mutate((state) => {
+      const configs = state.configurations ??= {};
+      const scope = this.key(tenant, key);
+      if ((configs[scope]?.revision ?? 0) !== expected) throw new ConflictException("配置修订冲突，请重新加载");
+      const value = { revision: expected + 1, data: structuredClone(data) };
+      configs[scope] = value;
+      state.audit.push(entry({ tenantId: tenant, actor, sceneId: key.replace(/^scenario:/, ""), action, result: "success" }));
+      return value;
+    });
+  }
   async readBusiness(tenant: string, scene: string) {
     await this.queue;
     const key = this.key(tenant, scene);
-    let current = (await this.read()).business[key];
+    let current = (await this.read(key)).business[key];
     if (current && !current.bundleId) {
       // 旧格式在首次业务读取时转换；原数据文件不删除，确保可人工恢复。
       await this.mutate(() => undefined);
-      current = (await this.read()).business[key];
+      current = (await this.read(key)).business[key];
     }
     return current ? { revision: current.revision, data: current.data } : null;
   }
@@ -296,7 +302,7 @@ export class FileRepository implements Repository {
         }),
       );
       return publication;
-    });
+    }, this.key(tenant, scene));
   }
   async publications(tenant: string, scene: string) {
     await this.queue;
@@ -425,6 +431,25 @@ export class FileRepository implements Repository {
 }
 export class PostgresRepository implements Repository {
   constructor(readonly pool: Pool) {}
+  async readConfiguration(tenant: string, key: string): Promise<Revision | null> {
+    const result = await this.pool.query("SELECT revision,data FROM platform_configuration WHERE tenant_id=$1 AND config_key=$2", [tenant, key]);
+    return result.rows[0] ? { revision: Number(result.rows[0].revision), data: result.rows[0].data } : null;
+  }
+  /** 配置更新与审计共用事务，修订不符时不覆盖其他管理员的修改。 */
+  async saveConfiguration(tenant: string, key: string, expected: number, data: unknown, actor: string, action: string): Promise<Revision> {
+    const client = await this.pool.connect();
+    try {
+      await client.query("BEGIN");
+      const result = expected === 0
+        ? await client.query("INSERT INTO platform_configuration(tenant_id,config_key,revision,data) VALUES($1,$2,1,$3::jsonb) ON CONFLICT DO NOTHING RETURNING revision,data", [tenant, key, JSON.stringify(data)])
+        : await client.query("UPDATE platform_configuration SET revision=revision+1,data=$4::jsonb,updated_at=now() WHERE tenant_id=$1 AND config_key=$2 AND revision=$3 RETURNING revision,data", [tenant, key, expected, JSON.stringify(data)]);
+      if (!result.rowCount) throw new ConflictException("配置修订冲突，请重新加载");
+      await client.query("INSERT INTO platform_audit(id,tenant_id,actor,scene_id,action,result) VALUES($1,$2,$3,$4,$5,$6)", [randomUUID(), tenant, actor, key.replace(/^scenario:/, ""), action, "success"]);
+      await client.query("COMMIT");
+      return { revision: Number(result.rows[0].revision), data: result.rows[0].data };
+    } catch (error) { await client.query("ROLLBACK"); throw error; }
+    finally { client.release(); }
+  }
   /** 将业务集合关系化写入实体表，与 JSONB 修订在同一事务内保持一致。 */
   private async syncBusinessEntities(
     client: PoolClient,

@@ -1,3 +1,8 @@
+import { ExtensionServices } from "./extensionServices";
+import { TenantLicensing, loadLicenseRoots } from "./licensing";
+import { ScenarioCatalog } from "./scenarios";
+import demoFixtures from "../demo-assets/fixtures.generated.json";
+import { createDemoBusiness } from "./demoBusiness";
 import { readFileSync } from "node:fs";
 import { createHash } from "node:crypto";
 import { chmod, mkdir, rename, writeFile } from "node:fs/promises";
@@ -22,13 +27,22 @@ import { AuthService, hashPassword, type Account } from "./auth";
 import { FileStore } from "./files";
 import { FileIngestionStore } from "../../../../packages/ingestion/src/file";
 import { PostgresIngestionStore } from "../../../../packages/ingestion/src/postgres";
-import { ConfiguredSceneConnector, QueueWorker } from "../../../../packages/ingestion/src/worker";
+import {
+  ConfiguredSceneConnector,
+  QueueWorker,
+} from "../../../../packages/ingestion/src/worker";
 import { loadTianqingConfig } from "../../../../packages/ingestion/src/tianqing";
 import type { IngestionStore } from "../../../../packages/ingestion/src/state";
 import { DemoService } from "../service";
 import {
   demoStations,
   parseBusinessData,
+  layerForProduct,
+  MOCK_LAYER_PRODUCTS,
+  moduleForMenu,
+  MenuIds,
+  type ProductModule,
+  type SceneConfig,
   type BusinessData,
 } from "@dtv/contracts";
 const accountSchema = z.array(
@@ -36,7 +50,10 @@ const accountSchema = z.array(
     id: z.string().min(1),
     tenantId: z.string().min(1),
     role: z.enum(["admin", "editor", "viewer"]),
-    scenes: z.array(z.enum(["xian", "taiyuan", "chengdu"])).min(1),
+    scenes: z
+      .array(z.string().regex(/^[a-z][a-z0-9-]{0,63}$/))
+      .min(1)
+      .max(50),
     passwordHash: z.string().regex(/^scrypt:[a-f0-9]{32}:[a-f0-9]{128}$/),
     disabled: z.boolean().optional(),
   }),
@@ -46,9 +63,11 @@ export type Request = IncomingMessage & { ip?: string };
 export function isPublicationCohort(userId: string, trafficPercent: number) {
   if (trafficPercent >= 100) return true;
   if (trafficPercent <= 0) return false;
-  const bucket = Number.parseInt(
-    createHash("sha256").update(userId).digest("hex").slice(0, 8), 16,
-  ) % 100;
+  const bucket =
+    Number.parseInt(
+      createHash("sha256").update(userId).digest("hex").slice(0, 8),
+      16,
+    ) % 100;
   return bucket < trafficPercent;
 }
 export function sessionToken(req: Request) {
@@ -77,7 +96,12 @@ export class Platform {
   private closed = false;
   private locks = new Map<string, Promise<unknown>>();
   readonly files: FileStore;
+  readonly extensions = new ExtensionServices();
   readonly ingestion: IngestionStore;
+  readonly scenarios: ScenarioCatalog;
+  readonly licensing: TenantLicensing;
+  private platformAdminIds: string[];
+  private demoEnabled: boolean;
   readonly tianqing = loadTianqingConfig();
   private timer?: ReturnType<typeof setInterval>;
   private executing: Promise<unknown> | null = null;
@@ -85,7 +109,18 @@ export class Platform {
     if (this.timer || this.repo instanceof PostgresRepository) return;
     const worker = new QueueWorker(
       this.ingestion,
-      new ConfiguredSceneConnector(this.tianqing),
+      new ConfiguredSceneConnector(
+        this.tianqing,
+        (id, tenant) => this.scenarios.active(tenant, id),
+        async (tenant, id, product) => {
+          await this.licensing.requireTask(
+            tenant,
+            id,
+            product,
+            this.demoEnabled,
+          );
+        },
+      ),
     );
     this.timer = setInterval(() => {
       if (!this.executing)
@@ -134,7 +169,9 @@ export class Platform {
       if (references.draft.has(id))
         throw new ConflictException("文件仍被业务资料引用，请先移除引用并保存");
       if (references.publication.has(id))
-        throw new ConflictException("文件仍被发布历史引用，为保证在线版本和历史恢复可用，不能删除");
+        throw new ConflictException(
+          "文件仍被发布历史引用，为保证在线版本和历史恢复可用，不能删除",
+        );
       await this.files.remove(user.tenantId, scene, id);
       await this.repo.logAudit({
         tenantId: user.tenantId,
@@ -161,6 +198,10 @@ export class Platform {
       await this.repo.audit("__health__");
       if (this.repo instanceof PostgresRepository)
         await this.repo.pool.query("SELECT 1 FROM ingestion_state LIMIT 0");
+      if (this.repo instanceof PostgresRepository)
+        await this.repo.pool.query(
+          "SELECT 1 FROM platform_configuration LIMIT 0",
+        );
     } catch {
       throw new ServiceUnavailableException("平台存储未就绪");
     }
@@ -174,21 +215,194 @@ export class Platform {
     fileRoot = resolve(process.env.DATA_DIR ?? ".data", "files"),
     private readonly accountsFile?: string,
   ) {
+    this.demoEnabled = allowDemo;
+    this.platformAdminIds = (process.env.PLATFORM_ADMIN_IDS ?? "")
+      .split(",")
+      .map((id) => id.trim())
+      .filter(Boolean);
+    this.licensing = new TenantLicensing(
+      repo,
+      loadLicenseRoots(),
+      process.env.LICENSE_REQUIRED === "true" ||
+        (process.env.LICENSE_REQUIRED !== "false" &&
+          process.env.DEPLOYMENT_MODE === "production"),
+    );
     this.files = new FileStore(fileRoot);
+    this.scenarios = new ScenarioCatalog(repo);
     // 雷达和卫星当前使用产品隔离的 Mock Connector；后续可替换为地区级真实连接器。
     const resolveSource = (scene: string, productId = "surface-hourly") =>
-      productId === "surface-hourly" ? this.tianqing.sourceForScene(scene) : "mock" as const;
+      productId === "surface-hourly"
+        ? this.tianqing.sourceForScene(scene)
+        : ("mock" as const);
     this.ingestion =
       repo instanceof PostgresRepository
         ? new PostgresIngestionStore(repo.pool, resolveSource)
         : new FileIngestionStore(resolve(fileRoot, ".."), resolveSource);
-    this.auth = new AuthService(repo, accounts, allowDemo);
+    this.auth = new AuthService(
+      repo,
+      accounts,
+      allowDemo,
+      this.platformAdminIds,
+    );
     this.accounts = accounts;
   }
   private readonly accounts: Account[];
+  /** 平台管理员身份由服务器配置和当前账号共同确定，绝不采信请求体声明。 */
+  isPlatformAdmin(user: Principal) {
+    return (
+      user.kind === "account" &&
+      user.role === "admin" &&
+      this.platformAdminIds.includes(user.id) &&
+      this.accounts.some(
+        (a) => a.id === user.id && a.role === "admin" && !a.disabled,
+      )
+    );
+  }
+  requirePlatformAdmin(user: Principal) {
+    if (!this.isPlatformAdmin(user))
+      throw new ForbiddenException("仅平台管理员可管理租户产品授权");
+  }
+  async authorizeLicenseAdmin(user: Principal) {
+    try {
+      this.requirePlatformAdmin(user);
+    } catch (error) {
+      await this.repo.logAudit({
+        tenantId: user.tenantId,
+        actor: user.id,
+        sceneId: "",
+        action: "license.manage",
+        result: "denied",
+      });
+      throw error;
+    }
+  }
+  tenantDirectory(user: Principal) {
+    this.requirePlatformAdmin(user);
+    return [...new Set(this.accounts.map((a) => a.tenantId))].map(
+      (tenantId) => ({
+        tenantId,
+        accountCount: this.accounts.filter(
+          (a) => a.tenantId === tenantId && !a.disabled,
+        ).length,
+      }),
+    );
+  }
+  async module(
+    user: Principal,
+    scene: string,
+    module: ProductModule,
+    dataset?: string,
+  ) {
+    try {
+      return await this.licensing.require(
+        user.tenantId,
+        scene,
+        module,
+        dataset,
+        user.kind === "demo",
+      );
+    } catch (error) {
+      await this.repo.logAudit({
+        tenantId: user.tenantId,
+        actor: user.id,
+        sceneId: scene,
+        action: `license.${module}`,
+        result: "denied",
+      });
+      throw error;
+    }
+  }
+  async scenesFor(user: Principal): Promise<SceneConfig[]> {
+    const status = await this.licensing.status(
+      user.tenantId,
+      user.kind === "demo",
+    );
+    if (!status.modules.includes("map")) return [];
+    return (await this.scenarios.list(user))
+      .filter((s) => !status.regions || status.regions.includes(s.id))
+      .map((s) => ({
+        ...s,
+        ui: {
+          menus: (s.ui?.menus ?? [...MenuIds]).filter(
+            (menu) =>
+              !moduleForMenu[menu] ||
+              status.modules.includes(moduleForMenu[menu]!),
+          ),
+          theme: s.ui?.theme ?? { primary: "#1263c4", navy: "#1c466c" },
+          layout: s.ui?.layout ?? { panelWidth: 264, timelineHeight: 112 },
+        },
+      }));
+  }
+  private async checkAccountGrant(
+    user: Principal,
+    fields: { tenantId: string; scenes: string[]; disabled?: boolean },
+    editingId?: string,
+  ) {
+    if (fields.tenantId.startsWith("demo-"))
+      throw new ForbiddenException("真实账号不能使用演示租户前缀");
+    if (
+      !this.isPlatformAdmin(user) &&
+      (fields.tenantId !== user.tenantId ||
+        fields.scenes.some((id) => !user.scenes.includes(id)))
+    )
+      throw new ForbiddenException("不能跨租户或超出自身地区分配账号");
+    if (fields.disabled) return;
+    const grant = await this.licensing.status(fields.tenantId);
+    // 平台管理员可先开通租户管理员，用于许可证尚未导入的新租户；业务接口仍拒绝无证访问。
+    if (this.isPlatformAdmin(user) && grant.state === "missing") return;
+    if (
+      !grant.modules.includes("map") ||
+      (grant.regions &&
+        fields.scenes.some((id) => !grant.regions!.includes(id)))
+    )
+      throw new ForbiddenException("账号地区超出产品授权");
+    if (
+      this.accounts.filter(
+        (a) =>
+          a.tenantId === fields.tenantId && !a.disabled && a.id !== editingId,
+      ).length >= grant.maxAccounts
+    )
+      throw new ForbiddenException("已达到许可证账号上限");
+  }
+  /** 隐藏未授权的业务集合与关联，不把模块关闭解释成删除资料。 */
+  private async visibleBusiness(
+    user: Principal,
+    data: BusinessData,
+  ): Promise<BusinessData> {
+    const grant = await this.licensing.status(
+      user.tenantId,
+      user.kind === "demo",
+    );
+    const files = grant.modules.includes("files"),
+      roam = grant.modules.includes("roam");
+    return {
+      ...data,
+      assets: files ? data.assets : [],
+      bookmarks: roam ? data.bookmarks : [],
+      plans: roam
+        ? data.plans.map((plan) => ({
+            ...plan,
+            points: plan.points.map((point) =>
+              files ? point : { ...point, modelId: undefined },
+            ),
+          }))
+        : [],
+      stations: data.stations.map((station) => ({
+        ...station,
+        ...(!files ? { modelId: undefined } : {}),
+        ...(!roam ? { bookmarkId: undefined } : {}),
+      })),
+    };
+  }
+  async business(user: Principal, scene: string) {
+    const current = await this.businessRaw(user, scene);
+    return { ...current, data: await this.visibleBusiness(user, current.data) };
+  }
   /** 来源路由由服务端地区配置决定；除地面小时天擎外均使用对应 Mock 产品。 */
   sourceForScene(sceneId: string, productId = "surface-hourly") {
-    return productId === "surface-hourly" ? this.tianqing.sourceForScene(sceneId) : "mock" as const;
+    return productId === "surface-hourly"
+      ? this.tianqing.sourceForScene(sceneId)
+      : ("mock" as const);
   }
   private accountChangeQueue: Promise<void> = Promise.resolve();
   private async serializeAccountChange<T>(work: () => Promise<T>): Promise<T> {
@@ -232,13 +446,15 @@ export class Platform {
     this.requireAccountAdmin(user);
     if (!this.accountsFile)
       throw new ServiceUnavailableException("未配置可写的 AUTH_USERS_FILE");
-    return this.accounts.map(({ id, tenantId, role, scenes, disabled }) => ({
-      id,
-      tenantId,
-      role,
-      scenes,
-      disabled,
-    }));
+    return this.accounts
+      .filter((a) => this.isPlatformAdmin(user) || a.tenantId === user.tenantId)
+      .map(({ id, tenantId, role, scenes, disabled }) => ({
+        id,
+        tenantId,
+        role,
+        scenes,
+        disabled,
+      }));
   }
   /** 只有真实管理员能创建账号；校验角色、场景后持久化带盐密码摘要。 */
   async createAccount(user: Principal, input: unknown) {
@@ -254,9 +470,9 @@ export class Platform {
         tenantId: z.string().trim().min(1).max(64),
         role: z.enum(["admin", "editor", "viewer"]),
         scenes: z
-          .array(z.enum(["xian", "taiyuan", "chengdu"]))
+          .array(z.string().regex(/^[a-z][a-z0-9-]{0,63}$/))
           .min(1)
-          .max(3),
+          .max(50),
         password: z.string().min(12).max(128),
       })
       .safeParse(input);
@@ -265,6 +481,12 @@ export class Platform {
     return this.serializeAccountChange(async () => {
       if (this.accounts.some((a) => a.id === parsed.data.id))
         throw new ConflictException("账号 ID 已存在");
+      if (
+        !this.isPlatformAdmin(user) &&
+        this.platformAdminIds.includes(parsed.data.id)
+      )
+        throw new ForbiddenException("该账号ID保留给平台管理员");
+      await this.checkAccountGrant(user, parsed.data);
       const { password, ...fields } = parsed.data;
       const account: Account = {
         ...fields,
@@ -296,16 +518,23 @@ export class Platform {
         tenantId: z.string().trim().min(1).max(64),
         role: z.enum(["admin", "editor", "viewer"]),
         scenes: z
-          .array(z.enum(["xian", "taiyuan", "chengdu"]))
+          .array(z.string().regex(/^[a-z][a-z0-9-]{0,63}$/))
           .min(1)
-          .max(3),
+          .max(50),
         disabled: z.boolean(),
       })
       .safeParse(input);
     if (!parsed.success) throw new BadRequestException("账号信息格式错误");
     return this.serializeAccountChange(async () => {
       const target = this.accounts.find((a) => a.id === id);
-      if (!target) throw new BadRequestException("账号不存在");
+      if (
+        !target ||
+        (!this.isPlatformAdmin(user) &&
+          (target.tenantId !== user.tenantId ||
+            this.platformAdminIds.includes(id)))
+      )
+        throw new ForbiddenException("无权管理该账号");
+      await this.checkAccountGrant(user, parsed.data, id);
       if (
         id === user.id &&
         (parsed.data.role !== "admin" || parsed.data.disabled)
@@ -342,8 +571,14 @@ export class Platform {
       .safeParse(input);
     if (!parsed.success) throw new BadRequestException("密码至少 12 位");
     return this.serializeAccountChange(async () => {
-      if (!this.accounts.some((a) => a.id === id))
-        throw new BadRequestException("账号不存在");
+      const target = this.accounts.find((a) => a.id === id);
+      if (
+        !target ||
+        (!this.isPlatformAdmin(user) &&
+          (target.tenantId !== user.tenantId ||
+            this.platformAdminIds.includes(id)))
+      )
+        throw new ForbiddenException("无权管理该账号");
       const next = this.accounts.map((a) =>
         a.id === id
           ? { ...a, passwordHash: hashPassword(parsed.data.password) }
@@ -369,12 +604,90 @@ export class Platform {
   async access(req: Request, scene: string, write = false) {
     if (write) writeBoundary(req);
     const user = await this.current(req);
-    this.demo.scene(scene);
+    await this.module(user, scene, "map");
+    await this.scenarios.active(user.tenantId, scene);
     await this.auth.authorize(user, scene, write);
     return user;
   }
+  /** 前端隐藏图层之外，数据和时次API也按生效包执行图层白名单。 */
+  async layer(user: Principal, sceneId: string, id: string) {
+    const scene = await this.scenarios.active(user.tenantId, sceneId);
+    const layer = this.demo.layer(id);
+    if (layer.category === "weather")
+      await this.module(
+        user,
+        sceneId,
+        MOCK_LAYER_PRODUCTS[id] ? "weather" : "map",
+        MOCK_LAYER_PRODUCTS[id] ?? "surface-hourly",
+      );
+    if (scene.enabledLayers && !scene.enabledLayers.includes(id))
+      throw new ForbiddenException("该图层未在当前场景启用");
+    return layer;
+  }
+  async product(user: Principal, sceneId: string, productId: string) {
+    const layerId = layerForProduct(productId);
+    if (layerId) await this.layer(user, sceneId, layerId);
+  }
+  /** 创建新的演示资料包；已有修订直接返回，禁止覆盖正式账号或现有工作。 */
+  async initializeDemoScene(user: Principal, scene: string) {
+    if (
+      user.kind !== "demo" ||
+      user.role !== "admin" ||
+      !user.scenes.includes(scene)
+    )
+      throw new ForbiddenException("仅隔离演示会话可以初始化演示资料");
+    return this.locked(user, scene, async () => {
+      const existing = await this.repo.readBusiness(user.tenantId, scene);
+      if (existing) return this.business(user, scene);
+      const data = createDemoBusiness(
+        await this.scenarios.active(user.tenantId, scene),
+      );
+      const created: string[] = [];
+      try {
+        for (const fixture of demoFixtures) {
+          const meta = await this.files.storeDemoFile(
+            user.tenantId,
+            scene,
+            new File([Buffer.from(fixture.base64, "base64")], fixture.name),
+          );
+          created.push(meta.id);
+          data.assets.push({
+            id: `${scene}-demo-${fixture.kind}`,
+            name: `Mock · ${fixture.kind === "model" ? "气象观测塔" : fixture.kind === "video" ? "监测视频" : "站点说明"}`,
+            kind: fixture.kind as "model" | "video" | "document",
+            blobId: meta.id,
+            fileName: meta.name,
+            size: meta.size,
+            ...(fixture.kind === "model"
+              ? { scale: 1, heading: 0 }
+              : { stationId: data.stations[0].id }),
+          });
+        }
+        data.stations[0].modelId = data.assets[0].id;
+        data.plans[0].points[0].modelId = data.assets[0].id;
+        const parsed = parseBusinessData(data, scene);
+        await this.files.validateReferences(
+          user.tenantId,
+          scene,
+          parsed.assets,
+        );
+        await this.repo.saveBusiness(user.tenantId, scene, 0, parsed, user.id);
+        return this.business(user, scene);
+      } catch (error) {
+        // 响应丢失也可能已提交：先核查仓库，绝不删除已被保存修订引用的文件。
+        const saved = await this.repo.readBusiness(user.tenantId, scene);
+        if (!saved)
+          await Promise.all(
+            created.map((id) =>
+              this.files.remove(user.tenantId, scene, id).catch(() => {}),
+            ),
+          );
+        throw error;
+      }
+    });
+  }
   /** 按发布灰度规则返回活动快照；草稿只对有权限用户按业务规则读取。 */
-  async business(user: Principal, scene: string) {
+  private async businessRaw(user: Principal, scene: string) {
     if (user.role === "viewer") {
       const active = await this.repo.activePublication(user.tenantId, scene);
       if (active && isPublicationCohort(user.id, active.trafficPercent ?? 100))
@@ -384,8 +697,11 @@ export class Platform {
           owner: { id: user.id, tenantId: user.tenantId },
         };
       if (active?.previousRevision !== undefined) {
-        const previous = (await this.repo.publications(user.tenantId, scene))
-          .find((publication) => publication.revision === active.previousRevision);
+        const previous = (
+          await this.repo.publications(user.tenantId, scene)
+        ).find(
+          (publication) => publication.revision === active.previousRevision,
+        );
         if (previous)
           return {
             revision: previous.revision,
@@ -395,28 +711,35 @@ export class Platform {
       }
     }
     // 只读账号只读取已激活快照；未激活时走明确的只读演示底图，不暴露草稿。
-    const saved = user.role === "viewer"
-      ? null
-      : await this.repo.readBusiness(user.tenantId, scene);
+    const saved =
+      user.role === "viewer"
+        ? null
+        : await this.repo.readBusiness(user.tenantId, scene);
     if (saved)
       return {
         revision: saved.revision,
         data: parseBusinessData(saved.data, scene),
         owner: { id: user.id, tenantId: user.tenantId },
       };
-    const config = this.demo.scene(scene);
-    const data: BusinessData = {
-      version: 1,
-      stations: demoStations(config).map((s, i) => ({
-        ...s,
-        type: i % 3 === 0 ? "雷达站" : i % 2 ? "国家无人站" : "国家有人站",
-        status: "运行正常",
-      })),
-      plans: [],
-      bookmarks: [],
-      assets: [],
-      users: [{ id: "demo", name: "演示用户", role: "管理员", enabled: true }],
-    };
+    const config = await this.scenarios.active(user.tenantId, scene);
+    const data: BusinessData =
+      user.kind === "demo"
+        ? createDemoBusiness(config)
+        : {
+            version: 1,
+            stations: demoStations(config).map((s, i) => ({
+              ...s,
+              type:
+                i % 3 === 0 ? "雷达站" : i % 2 ? "国家无人站" : "国家有人站",
+              status: "运行正常",
+            })),
+            plans: [],
+            bookmarks: [],
+            assets: [],
+            users: [
+              { id: "demo", name: "演示用户", role: "管理员", enabled: true },
+            ],
+          };
     return {
       revision: 0,
       data,
@@ -427,18 +750,39 @@ export class Platform {
     return this.locked(user, scene, () => this.saveUnlocked(user, scene, body));
   }
   /** 固化当前修订为不可变快照并写审计，之后还需另一位管理员审批。 */
-  async publishBusiness(user: Principal, scene: string, revision: number, message: string) {
+  async publishBusiness(
+    user: Principal,
+    scene: string,
+    revision: number,
+    message: string,
+  ) {
     if (user.role !== "admin")
       throw new ForbiddenException("仅管理员可发布业务修订");
     const current = await this.repo.readBusiness(user.tenantId, scene);
     if (!current || current.revision !== revision)
       throw new ConflictException("发布修订已变化，请重新加载");
-    return this.repo.publishBusiness(user.tenantId, scene, revision, user.id, message);
+    const result = await this.repo.publishBusiness(
+      user.tenantId,
+      scene,
+      revision,
+      user.id,
+      message,
+    );
+    return {
+      ...result,
+      snapshot: await this.visibleBusiness(user, result.snapshot),
+    };
   }
   async businessPublications(user: Principal, scene: string) {
     if (user.role !== "admin")
       throw new ForbiddenException("仅管理员可查看发布历史");
-    return this.repo.publications(user.tenantId, scene);
+    const items = await this.repo.publications(user.tenantId, scene);
+    return Promise.all(
+      items.map(async (item) => ({
+        ...item,
+        snapshot: await this.visibleBusiness(user, item.snapshot),
+      })),
+    );
   }
   async reviewBusinessPublication(
     user: Principal,
@@ -449,22 +793,52 @@ export class Platform {
   ) {
     if (user.role !== "admin")
       throw new ForbiddenException("仅管理员可审批发布版本");
-    return this.repo.reviewPublication(
-      user.tenantId, scene, revision, user.id, decision, message,
+    const result = await this.repo.reviewPublication(
+      user.tenantId,
+      scene,
+      revision,
+      user.id,
+      decision,
+      message,
     );
+    return {
+      ...result,
+      snapshot: await this.visibleBusiness(user, result.snapshot),
+    };
   }
   /** 切换已审批快照，并记录上一活动版本供灰度和回滚使用。 */
-  async activateBusinessPublication(user: Principal, scene: string, revision: number, trafficPercent: number) {
+  async activateBusinessPublication(
+    user: Principal,
+    scene: string,
+    revision: number,
+    trafficPercent: number,
+  ) {
     if (user.role !== "admin")
       throw new ForbiddenException("仅管理员可激活发布版本");
-    return this.repo.activatePublication(user.tenantId, scene, revision, user.id, trafficPercent);
+    const result = await this.repo.activatePublication(
+      user.tenantId,
+      scene,
+      revision,
+      user.id,
+      trafficPercent,
+    );
+    return {
+      ...result,
+      snapshot: await this.visibleBusiness(user, result.snapshot),
+    };
   }
-  async rollbackBusiness(user: Principal, scene: string, targetRevision: number, expectedRevision: number) {
+  async rollbackBusiness(
+    user: Principal,
+    scene: string,
+    targetRevision: number,
+    expectedRevision: number,
+  ) {
     if (user.role !== "admin")
       throw new ForbiddenException("仅管理员可回滚业务版本");
     return this.locked(user, scene, async () => {
-      const publication = (await this.repo.publications(user.tenantId, scene))
-        .find((item) => item.revision === targetRevision);
+      const publication = (
+        await this.repo.publications(user.tenantId, scene)
+      ).find((item) => item.revision === targetRevision);
       if (!publication) throw new ConflictException("发布版本不存在");
       let data: BusinessData;
       try {
@@ -472,11 +846,37 @@ export class Platform {
       } catch {
         throw new ConflictException("发布快照校验失败，无法回滚");
       }
+      // 历史恢复同样受模块授权约束，不能绕过普通保存对隐藏集合的保护。
+      const current = await this.businessRaw(user, scene);
+      const grant = await this.licensing.status(
+        user.tenantId,
+        user.kind === "demo",
+      );
+      for (const [field, module] of [
+        ["stations", "stations"],
+        ["assets", "files"],
+        ["plans", "roam"],
+        ["bookmarks", "roam"],
+      ] as const) {
+        if (
+          !grant.modules.includes(module) &&
+          JSON.stringify(current.data[field]) !== JSON.stringify(data[field])
+        )
+          await this.module(user, scene, module);
+      }
       await this.files.validateReferences(user.tenantId, scene, data.assets);
       const restored = await this.repo.rollbackBusiness(
-        user.tenantId, scene, targetRevision, expectedRevision, user.id,
+        user.tenantId,
+        scene,
+        targetRevision,
+        expectedRevision,
+        user.id,
       );
-      return { ...restored, owner: { id: user.id, tenantId: user.tenantId } };
+      return {
+        ...restored,
+        data: await this.visibleBusiness(user, data),
+        owner: { id: user.id, tenantId: user.tenantId },
+      };
     });
   }
   private async saveUnlocked(user: Principal, scene: string, body: unknown) {
@@ -502,7 +902,48 @@ export class Platform {
         "业务资料校验失败，检查字段、地区和数量限制",
       );
     }
-    const old = await this.business(user, scene);
+    const old = await this.businessRaw(user, scene);
+    const visible = await this.visibleBusiness(user, old.data);
+    const grant = await this.licensing.status(
+      user.tenantId,
+      user.kind === "demo",
+    );
+    for (const [field, module] of [
+      ["stations", "stations"],
+      ["assets", "files"],
+      ["plans", "roam"],
+      ["bookmarks", "roam"],
+    ] as const) {
+      if (!grant.modules.includes(module)) {
+        if (JSON.stringify(data[field]) !== JSON.stringify(visible[field]))
+          throw new ForbiddenException("不能修改未授权模块资料");
+        Object.assign(data, { [field]: old.data[field] });
+      }
+    }
+    for (const station of data.stations) {
+      const previous = old.data.stations.find((s) => s.id === station.id);
+      if (!grant.modules.includes("files")) {
+        if (station.modelId && station.modelId !== previous?.modelId)
+          throw new ForbiddenException("模型资料未授权");
+        station.modelId = previous?.modelId;
+      }
+      if (!grant.modules.includes("roam")) {
+        if (station.bookmarkId && station.bookmarkId !== previous?.bookmarkId)
+          throw new ForbiddenException("视角资料未授权");
+        station.bookmarkId = previous?.bookmarkId;
+      }
+    }
+    if (!grant.modules.includes("files"))
+      for (const plan of data.plans)
+        for (const point of plan.points) {
+          const previous = old.data.plans
+            .find((p) => p.id === plan.id)
+            ?.points.find((p) => p.id === point.id);
+          if (point.modelId && point.modelId !== previous?.modelId)
+            throw new ForbiddenException("模型资料未授权");
+          point.modelId = previous?.modelId;
+        }
+    data = parseBusinessData(data, scene);
     if (
       user.role !== "admin" &&
       JSON.stringify(old.data.users) !== JSON.stringify(data.users)
@@ -516,7 +957,11 @@ export class Platform {
       data,
       user.id,
     );
-    return { ...saved, owner: { id: user.id, tenantId: user.tenantId } };
+    return {
+      ...saved,
+      data: await this.visibleBusiness(user, data),
+      owner: { id: user.id, tenantId: user.tenantId },
+    };
   }
 }
 let instance: Platform | undefined;

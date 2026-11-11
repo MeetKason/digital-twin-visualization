@@ -17,7 +17,8 @@ if (
   !output ||
   !["admin", "editor", "viewer"].includes(role) ||
   !scenes.length ||
-  scenes.some((s) => !["xian", "taiyuan", "chengdu"].includes(s))
+  scenes.length > 50 ||
+  scenes.some((s) => !/^[a-z][a-z0-9-]{0,63}$/.test(s))
 )
   throw new Error(
     "Usage: password via stdin | node scripts/create-account.mjs --id NAME --tenant TENANT --role admin|editor|viewer --scenes xian,taiyuan --output deploy/auth/users.json",

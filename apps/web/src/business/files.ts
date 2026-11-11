@@ -1,3 +1,4 @@
+import { sessionFetch } from "../sessionRequest";
 function open(): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {
     const r = indexedDB.open("dtv-files-v1", 1);
@@ -48,7 +49,7 @@ export async function storeFile(sceneId: string, file: File): Promise<string> {
   // 文件直接流式上传到服务端私有仓库，浏览器只保存服务端返回的资源 ID。
   if (file.size > 100 * 1024 * 1024) throw new Error("文件不得超过100MB");
   const response = await checked(
-    await fetch(endpoint(sceneId), {
+    await sessionFetch(endpoint(sceneId), {
       method: "POST",
       credentials: "same-origin",
       headers: {
@@ -65,14 +66,14 @@ export async function readFile(sceneId: string, id: string): Promise<Blob> {
   if (!id.startsWith("srv_")) return readLegacyFile(id);
   return (
     await checked(
-      await fetch(endpoint(sceneId, id), { credentials: "same-origin" }),
+      await sessionFetch(endpoint(sceneId, id), { credentials: "same-origin" }),
     )
   ).blob();
 }
 export async function deleteFile(sceneId: string, id: string) {
   if (!id.startsWith("srv_")) return deleteLegacyFile(id);
   await checked(
-    await fetch(endpoint(sceneId, id), {
+    await sessionFetch(endpoint(sceneId, id), {
       method: "DELETE",
       credentials: "same-origin",
       headers: { "X-DTV-Request": "1" },
@@ -101,7 +102,7 @@ export async function listFiles(
 ): Promise<{ id: string; name: string; size: number; referenced: boolean; referencedInPublication?: boolean }[]> {
   return (
     await checked(
-      await fetch(endpoint(sceneId), { credentials: "same-origin" }),
+      await sessionFetch(endpoint(sceneId), { credentials: "same-origin" }),
     )
   ).json();
 }

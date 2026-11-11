@@ -234,9 +234,9 @@ export function LayerPanel({
           </small>
         </div>
         <div className="data-disclaimer">
-          演示目录 · 气温与降水为示例色块
+          气象产品为 Mock 示例
           <br />
-          其他产品需现场接入授权数据
+          真实业务资料后续按地区接入
         </div>
       </div>
     </section>

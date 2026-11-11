@@ -2,7 +2,7 @@
 export const pluginTrustRoots: Record<string, JsonWebKey> = {
   "build-root": {
     "crv": "Ed25519",
-    "x": "B_XE3FQVj0ZyiMrJgkYsYsoEOIfa_eO4OnUQT6-qyCU",
+    "x": "51SvO8d2NDoFDPv7EIwtqekcLaB_DHSQ3R0C8JXg7gQ",
     "kty": "OKP"
   }
 };

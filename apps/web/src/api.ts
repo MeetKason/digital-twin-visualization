@@ -1,3 +1,4 @@
+import { activateSession, closeSession, sessionFetch } from "./sessionRequest";
 import type {
   SceneConfig,
   LayerDescriptor,
@@ -6,11 +7,15 @@ import type {
   DataFrame,
 } from "@dtv/contracts";
 async function get<T>(url: string, signal?: AbortSignal): Promise<T> {
-  const response = await fetch(`/api${url}`, { signal });
+  const response = await (url.startsWith("/auth/") ? fetch : sessionFetch)(
+    `/api${url}`,
+    { signal },
+  );
   if (!response.ok) {
     const body = await response.json().catch(() => ({ message: "服务不可用" }));
-    throw new Error(
-      typeof body.message === "string" ? body.message : "请求失败",
+    throw Object.assign(
+      new Error(typeof body.message === "string" ? body.message : "请求失败"),
+      { status: response.status },
     );
   }
   return response.json() as Promise<T>;
@@ -63,8 +68,10 @@ export interface RuntimeConfig {
   terrainUrl: string | null;
   notice: string;
 }
-export async function runtimeConfig(): Promise<RuntimeConfig> {
-  const r = await fetch("/config.json");
+export async function runtimeConfig(
+  signal?: AbortSignal,
+): Promise<RuntimeConfig> {
+  const r = await fetch("/config.json", { signal });
   if (!r.ok) throw new Error("无法读取地图配置");
   const config = (await r.json()) as RuntimeConfig;
   let display: {
@@ -72,9 +79,11 @@ export async function runtimeConfig(): Promise<RuntimeConfig> {
     cesiumIonAccessToken?: string | null;
   } = { tiandituKey: null, cesiumIonAccessToken: null };
   try {
-    const service = await fetch("/api/display-config", {
+    const service = await sessionFetch("/api/display-config", {
       cache: "no-store",
-      signal: AbortSignal.timeout(2000),
+      signal: signal
+        ? AbortSignal.any([signal, AbortSignal.timeout(2000)])
+        : AbortSignal.timeout(2000),
     });
     if (service.ok) display = await service.json();
   } catch {
@@ -85,7 +94,8 @@ export async function runtimeConfig(): Promise<RuntimeConfig> {
     tiandituKey: display.tiandituKey ?? undefined,
     cesiumIonAccessToken: display.cesiumIonAccessToken ?? undefined,
   };
-  if (config.basemap?.type !== "tianditu" || display.tiandituKey) return runtime;
+  if (config.basemap?.type !== "tianditu" || display.tiandituKey)
+    return runtime;
   return {
     ...runtime,
     basemap: null,
@@ -99,6 +109,7 @@ export interface SessionUser {
   role: "admin" | "editor" | "viewer";
   scenes: string[];
   kind: "account" | "demo";
+  platformAdmin?: boolean;
 }
 export interface BusinessRevision {
   revision: number;
@@ -111,15 +122,18 @@ export async function mutation<T>(
   body?: unknown,
 ): Promise<T> {
   // 写请求附加同源边界标识；服务端还会校验 Origin、会话、角色和修订号。
-  const response = await fetch(`/api${url}`, {
-    method,
-    credentials: "same-origin",
-    headers: {
-      "X-DTV-Request": "1",
-      ...(body ? { "Content-Type": "application/json" } : {}),
+  const response = await (url.startsWith("/auth/") ? fetch : sessionFetch)(
+    `/api${url}`,
+    {
+      method,
+      credentials: "same-origin",
+      headers: {
+        "X-DTV-Request": "1",
+        ...(body ? { "Content-Type": "application/json" } : {}),
+      },
+      body: body ? JSON.stringify(body) : undefined,
     },
-    body: body ? JSON.stringify(body) : undefined,
-  });
+  );
   if (!response.ok) {
     const error = await response
       .json()
@@ -133,13 +147,25 @@ export async function mutation<T>(
 export const authApi = {
   session: () =>
     get<{ user: SessionUser | null; demoEnabled: boolean }>("/auth/session"),
-  demo: () => mutation<{ user: SessionUser }>("/auth/demo", "POST"),
-  login: (username: string, password: string) =>
-    mutation<{ user: SessionUser }>("/auth/login", "POST", {
-      username,
-      password,
-    }),
-  logout: () => mutation("/auth/logout", "POST"),
+  demo: async () => {
+    const result = await mutation<{ user: SessionUser }>("/auth/demo", "POST");
+    activateSession();
+    return result;
+  },
+  login: async (username: string, password: string) => {
+    const result = await mutation<{ user: SessionUser }>(
+      "/auth/login",
+      "POST",
+      { username, password },
+    );
+    activateSession();
+    return result;
+  },
+  logout: async () => {
+    const result = await mutation("/auth/logout", "POST");
+    closeSession();
+    return result;
+  },
 };
 export const businessApi = {
   get: (scene: string, signal?: AbortSignal) =>
@@ -159,13 +185,22 @@ export const publicationApi = {
       "POST",
       { revision, message },
     ),
-  rollback: (sceneId: string, targetRevision: number, expectedRevision: number) =>
+  rollback: (
+    sceneId: string,
+    targetRevision: number,
+    expectedRevision: number,
+  ) =>
     mutation<BusinessRevision>(
       `/scenes/${sceneId}/publications/rollback`,
       "POST",
       { targetRevision, expectedRevision },
     ),
-  review: (sceneId: string, revision: number, decision: "approve" | "reject", message = "") =>
+  review: (
+    sceneId: string,
+    revision: number,
+    decision: "approve" | "reject",
+    message = "",
+  ) =>
     mutation<import("@dtv/contracts").BusinessPublication>(
       `/scenes/${sceneId}/publications/${revision}/review`,
       "POST",
@@ -219,4 +254,58 @@ export interface AuditEntry {
 }
 export const auditApi = {
   list: (signal?: AbortSignal) => get<AuditEntry[]>("/audit", signal),
+};
+
+/** 场景配置与业务资料各自维护修订；发布只影响当前租户已授权地区。 */
+export const scenarioApi = {
+  read: (id: string, signal?: AbortSignal) =>
+    get<import("@dtv/contracts").ScenarioRevision>(
+      `/scenes/${encodeURIComponent(id)}/scenario-pack`,
+      signal,
+    ),
+  save: (
+    id: string,
+    revision: number,
+    pack: import("@dtv/contracts").ScenarioPack,
+  ) =>
+    mutation<import("@dtv/contracts").ScenarioRevision>(
+      `/scenes/${encodeURIComponent(id)}/scenario-pack`,
+      "PUT",
+      { revision, pack },
+    ),
+  publish: (id: string, revision: number) =>
+    mutation<import("@dtv/contracts").ScenarioRevision>(
+      `/scenes/${encodeURIComponent(id)}/scenario-pack/publish`,
+      "POST",
+      { revision },
+    ),
+  restore: (id: string, revision: number, targetRevision: number) =>
+    mutation<import("@dtv/contracts").ScenarioRevision>(
+      `/scenes/${encodeURIComponent(id)}/scenario-pack/restore`,
+      "POST",
+      { revision, targetRevision },
+    ),
+};
+
+export const authorizationApi = {
+  current: (signal?: AbortSignal) =>
+    get<import("@dtv/contracts").TenantEntitlement>("/authorization", signal),
+  tenants: (signal?: AbortSignal) =>
+    get<{ tenantId: string; accountCount: number }[]>("/admin/tenants", signal),
+  tenant: (tenant: string) =>
+    get<import("@dtv/contracts").TenantEntitlement>(
+      `/admin/tenants/${encodeURIComponent(tenant)}/authorization`,
+    ),
+  import: (tenant: string, revision: number, certificate: unknown) =>
+    mutation<import("@dtv/contracts").TenantEntitlement>(
+      `/admin/tenants/${encodeURIComponent(tenant)}/authorization`,
+      "PUT",
+      { revision, certificate },
+    ),
+  revoke: (tenant: string, revision: number) =>
+    mutation<import("@dtv/contracts").TenantEntitlement>(
+      `/admin/tenants/${encodeURIComponent(tenant)}/authorization/revoke`,
+      "POST",
+      { revision },
+    ),
 };

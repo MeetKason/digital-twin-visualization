@@ -42,12 +42,14 @@ export function StationPage({
   sceneId,
   time,
   onMap,
+  allowFiles = true, allowRoam = true,
 }: {
   business: Business;
   map: MapFacade | null;
   sceneId: string;
   time: string;
   onMap: () => void;
+  allowFiles?:boolean; allowRoam?:boolean;
 }) {
   const { data, update } = business;
   const alive = useRef(true),
@@ -294,6 +296,7 @@ export function StationPage({
                 <h3>三维模型绑定（可选）</h3>
                 <div className="inline-fields">
                   <UiSelect
+                    disabled={!allowFiles}
                     aria-label="站点模型"
                     value={draft.modelId ?? ""}
                     onChange={(e) =>
@@ -312,13 +315,14 @@ export function StationPage({
                         </option>
                       ))}
                   </UiSelect>
-                  <UiButton htmlType="button" onClick={() => setModels(true)}>
+                  <UiButton disabled={!allowFiles} htmlType="button" onClick={() => setModels(true)}>
                     上传/绑定
                   </UiButton>
                 </div>
                 <label>
                   站点默认巡航视角（可选）
                   <UiSelect
+                    disabled={!allowRoam}
                     value={draft.bookmarkId ?? ""}
                     onChange={(e) =>
                       setDraft({
@@ -354,7 +358,7 @@ export function StationPage({
           )}
         </div>
       </section>
-      <section className="station-assets">
+      <section className="station-assets" hidden={!allowFiles}>
         <section className="panel">
           <div className="panel-heading">
             <strong>点位关联资料</strong>
@@ -489,6 +493,7 @@ export function StationPage({
             <label>
               三维模型绑定（可选）
               <UiSelect
+                disabled={!allowFiles}
                 value={dialog.modelId ?? ""}
                 onChange={(e) =>
                   setDialog({ ...dialog, modelId: e.target.value || undefined })
@@ -532,7 +537,7 @@ export function StationPage({
           </form>
         </Modal>
       )}
-      {models && (dialog ?? station) && (
+      {allowFiles && models && (dialog ?? station) && (
         <ModelManager
           business={business}
           map={map}
