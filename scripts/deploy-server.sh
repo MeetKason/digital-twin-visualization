@@ -19,6 +19,8 @@ for dependency in "$repo/node_modules/"* "$repo/node_modules/.bin"; do
  [[ "$(basename "$dependency")" == @dtv ]] || ln -s "$dependency" "$context/source/node_modules/$(basename "$dependency")"
 done
 for workspace in "$context/source/apps/"* "$context/source/packages/"*; do
+ # 领域源码目录不一定是独立npm工作区，仅链接有清单的包。
+ [[ -f "$workspace/package.json" ]] || continue
  name="$(node -e 'console.log(require(process.argv[1]).name)' "$workspace/package.json")"
  [[ "$name" == @dtv/* ]] || { echo '工作区包名不受支持' >&2; exit 2; }
  ln -s "$workspace" "$context/source/node_modules/$name"
