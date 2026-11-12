@@ -762,8 +762,14 @@ test("西安行政边界独立加载并在切换时次时复用", async ({ page 
   await page.getByRole("button", { name: "进入演示系统" }).click();
   await page.getByRole("button", { name: "基础图层", exact: true }).click();
   await expect(page.locator('[data-layer="boundary"]')).toHaveAttribute("data-status", "on");
-  await expect(page.getByText("西安市行政边界", { exact: true })).toBeVisible();
+  await expect(page.getByText("行政边界", { exact: true })).toBeVisible();
+  await expect(page.locator('[data-layer="base-2"]')).toHaveCount(0);
+  await expect(page.getByLabel("选中图层透明度")).toHaveCount(0);
   expect(boundaryRequests).toBe(1);
+  await page.getByRole("button", { name: "站点图层", exact: true }).click();
+  await expect(page.getByLabel("选中图层透明度")).toHaveCount(0);
+  await page.getByRole("button", { name: "气象要素", exact: true }).click();
+  await expect(page.getByLabel("选中图层透明度")).toBeVisible();
   await page.getByRole("button", { name: "00:00", exact: true }).click();
   await expect(page.locator(".time-context")).toContainText("00:00");
   expect(boundaryRequests).toBe(1);
@@ -1020,7 +1026,8 @@ test("只有未发布地区的新管理员可从空场景页完成首次配置",
   await page.getByRole("button", { name: "发布已保存草稿" }).click();
   await expect(page.locator("header h1")).toContainText(longName);
   await page.setViewportSize({ width: 1366, height: 768 });
-  await expect(page.getByRole("button", { name: "退出", exact: true })).toBeInViewport({ ratio: 1 });
+  await page.getByRole("button", { name: "打开账号菜单" }).click();
+  await expect(page.getByRole("menuitem", { name: "退出", exact: true })).toBeVisible();
   expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(1366);
   await expect(page.getByText("当前账号暂无已发布场景")).toHaveCount(0);
   await expect(page.locator(".side-navigation").getByRole("button", { name: "总览地图" })).toBeVisible();

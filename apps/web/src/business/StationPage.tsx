@@ -590,7 +590,7 @@ export function StationPage({
           </UiButton>
         </Modal>
       )}
-      <section className="panel" aria-label="站点类型字典与导入记录">
+      <section className="station-dictionary panel" aria-label="站点类型字典与导入记录">
         <h3>站点类型字典</h3>
         <Input value={typeName} onChange={(e) => setTypeName(e.target.value)} placeholder="新增类型名称" maxLength={80} />
         <Button onClick={() => {
@@ -599,15 +599,15 @@ export function StationPage({
           void update((old) => ({ ...old, stationTypes: [...typeDefinitions, { id: crypto.randomUUID(), name, fields: [] }] }));
           setTypeName("");
         }}>新增类型</Button>
-        <Table size="small" rowKey="id" pagination={false} dataSource={typeDefinitions} columns={[{ title: "类型", dataIndex: "name" }, { title: "扩展字段模板", render: (_, item) => <Input.TextArea aria-label={`${item.name}字段模板`} defaultValue={item.fields.map((field) => `${field.key},${field.name},${field.required ? "必填" : "选填"}`).join("\n")} placeholder="每行：字段键,显示名,必填或选填" onBlur={(e) => {
+        <Table size="small" rowKey="id" pagination={false} scroll={{ x: 580 }} tableLayout="fixed" dataSource={typeDefinitions} columns={[{ title: "类型", dataIndex: "name", width: 120 }, { title: "扩展字段模板", width: 360, render: (_, item) => <Input.TextArea autoSize={{ minRows: 2, maxRows: 4 }} aria-label={`${item.name}字段模板`} defaultValue={item.fields.map((field) => `${field.key},${field.name},${field.required ? "必填" : "选填"}`).join("\n")} placeholder="每行：字段键,显示名,必填或选填" onBlur={(e) => {
           const fields = e.target.value.split("\n").filter(Boolean).map((line) => {
             const [key, name, flag] = line.split(",").map((part) => part.trim());
             return { key, name, required: flag === "必填" };
           });
           void update((old) => ({ ...old, stationTypes: typeDefinitions.map((definition) => definition.id === item.id ? { ...definition, fields } : definition) }));
-        }} /> }, { title: "操作", render: (_, item) => <Button danger disabled={data.stations.some((station) => station.type === item.name)} onClick={() => void update((old) => ({ ...old, stationTypes: typeDefinitions.filter((definition) => definition.id !== item.id) }))}>删除</Button> }]}/>
+        }} /> }, { title: "操作", width: 100, render: (_, item) => <Button danger disabled={data.stations.some((station) => station.type === item.name)} onClick={() => void update((old) => ({ ...old, stationTypes: typeDefinitions.filter((definition) => definition.id !== item.id) }))}>删除</Button> }]}/>
         <h3>导入批次报告</h3>
-        <Table size="small" rowKey="id" dataSource={data.importReports ?? []} columns={[{ title: "文件", dataIndex: "fileName" }, { title: "时间", dataIndex: "createdAt" }, { title: "成功", dataIndex: "imported" }, { title: "跳过", dataIndex: "skipped" }, { title: "错误", render: (_, item) => item.errors.map((error) => `第${error.line}行：${error.message}`).join("；") || "无" }]} />
+        <Table size="small" rowKey="id" scroll={{ x: 720 }} dataSource={data.importReports ?? []} columns={[{ title: "文件", dataIndex: "fileName", width: 180 }, { title: "时间", dataIndex: "createdAt", width: 190 }, { title: "成功", dataIndex: "imported", width: 70 }, { title: "跳过", dataIndex: "skipped", width: 70 }, { title: "错误", render: (_, item) => item.errors.map((error) => `第${error.line}行：${error.message}`).join("；") || "无" }]} />
       </section>
       {viewing && (
         <Modal

@@ -177,7 +177,7 @@ export const LAYERS: LayerDescriptor[] = [
   },
   {
     id: "boundary",
-    name: "示例区域边界",
+    name: "行政边界",
     category: "base",
     tag: "示例",
     rendererType: "boundary",
@@ -202,14 +202,16 @@ export const LAYERS: LayerDescriptor[] = [
 const baseEntries = [
   "高清遥感影像",
   "航拍影像",
-  "行政边界",
+  null,
   "水系 / 河流",
   "道路",
   "地名标注",
   "地形阴影",
   "重点区域边界",
 ];
-baseEntries.forEach((name, i) =>
+baseEntries.forEach((name, i) => {
+  // base-2 曾是不可用占位项；真实边界统一由 boundary 控制。
+  if (!name) return;
   LAYERS.push({
     id: `base-${i}`,
     name,
@@ -222,8 +224,8 @@ baseEntries.forEach((name, i) =>
     unit: "",
     available: false,
     reason: "未配置该内网地理数据源",
-  }),
-);
+  });
+});
 const stationEntries = [
   "国家无人站",
   "雷达站",

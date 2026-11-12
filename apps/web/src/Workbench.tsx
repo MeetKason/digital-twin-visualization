@@ -2,7 +2,8 @@ import { TenantAuthorization } from "./business/TenantAuthorization";
 import { PluginPage, PluginWidgets } from "./business/PluginPanels";
 import { WeatherLegend } from "./WeatherLegend";
 import { UiButton, UiSelect } from "./ui/controls";
-import { Alert, ConfigProvider, Empty } from "antd";
+import { Alert, Button, ConfigProvider, Dropdown, Empty } from "antd";
+import { DownOutlined } from "@ant-design/icons";
 import zhCN from "antd/locale/zh_CN";
 import { MenuIds, ProductModules, type ProductModule } from "@dtv/contracts";
 import {
@@ -199,11 +200,20 @@ export default function Workbench({ onExit }: { onExit: () => void }) {
               </b>
             </time>
             <span className="header-divider" />
-            <Icon name="user" />
-            <span>{profile?.kind === "demo" ? "演示用户" : profile?.id}</span>
-            <UiButton className="exit" onClick={onExit}>
-              退出
-            </UiButton>
+            <Dropdown
+              trigger={["click"]}
+              placement="bottomRight"
+              menu={{
+                items: [{ key: "logout", label: "退出" }],
+                onClick: ({ key }) => { if (key === "logout") onExit(); },
+              }}
+            >
+              <Button className="account-menu-trigger" type="text" aria-label="打开账号菜单">
+                <Icon name="user" />
+                <span>{profile?.kind === "demo" ? "演示用户" : profile?.id}</span>
+                <DownOutlined />
+              </Button>
+            </Dropdown>
           </div>
         </header>
         {error ? (
@@ -680,7 +690,7 @@ function WorkArea({
             <Alert type="error" showIcon message={business.error} />
           )}
         </div>
-        <div className="business-sync">
+        {(business.error || business.legacy || business.status !== "服务端资料已加载") && <div className="business-sync">
           <span role="status">{business.status}</span>
           {business.error && (
             <UiButton onClick={() => void business.reload()}>
@@ -692,7 +702,7 @@ function WorkArea({
               迁移当前地区的本地演示资料
             </UiButton>
           )}
-        </div>
+        </div>}
 
         <WeatherLegend
           runtime={runtime}

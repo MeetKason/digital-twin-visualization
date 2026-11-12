@@ -166,14 +166,14 @@ export default function MapView({
         v.scene.verticalExaggerationRelativeHeight = 0;
         const home = () =>
           v.camera.flyTo({
-            // 初始镜头以低角度朝向西安南部山地，避免真实地形只呈现为俯视卫星图。
+            // 默认采用区域级俯视构图，让完整行政区和周边地形同时进入视野。
             destination: Cartesian3.fromDegrees(
               ...scene.center,
-              Math.min(scene.height * 0.2, 25000),
+              scene.height * 0.65,
             ),
             orientation: {
-              heading: CesiumMath.toRadians(180),
-              pitch: CesiumMath.toRadians(-18),
+              heading: 0,
+              pitch: CesiumMath.toRadians(-55),
               roll: 0,
             },
             duration: 0.7,
@@ -412,7 +412,7 @@ export default function MapView({
                       boundary.coordinates,
                     ),
                     clampToGround: true,
-                    width: 2,
+                    width: 5,
                     material: Color.fromCssColorString("#20b5da"),
                   },
                 });
@@ -433,7 +433,7 @@ export default function MapView({
                     lon - 0.55,
                     lat - 0.42,
                   ]),
-                  width: 3,
+                  width: 5,
                   material: Color.fromCssColorString("#20b5da"),
                 },
               });

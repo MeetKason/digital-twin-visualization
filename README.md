@@ -145,6 +145,8 @@ digital-twin-visualization/
 
 ## 前端组件约定
 
+**最高优先级：后续前端开发以 Ant Design（antd）为主。** 优先复用 Ant Design 原生组件及 `apps/web/src/ui/controls.tsx` 的共享封装；仅在 Ant Design 没有对应能力时实现自定义组件，并遵循同一主题、交互和响应式规范。
+
 业务界面的按钮、输入框、数字输入、选择器、滑块、上传、开关、提示、弹窗、列表、表格和卡片优先使用项目依赖的 Ant Design（antd）。统一从 `apps/web/src/ui/controls.tsx` 复用兼容封装；封装用于保持既有交互接口与项目视觉样式，新增页面应优先采用 Ant Design 原生组件或这些共享封装，不要直接新增原生 `button`、`input`、`select`、`textarea`。Ant Design 没有对应能力时，再实现小型自定义组件，并沿用 Ant Design token 与现有交互规范。Cesium 地图画布、地图标记、图层叠加和必要的布局容器属于地图专用元素，继续使用对应实现。
 
 业务表格统一使用 Ant Table：专题和设备表格配置明确列宽、横向滚动及分页；专题表格使用固定表头与独立滚动区域，异常提示位于独立区域，避免覆盖表格行。
@@ -163,7 +165,7 @@ digital-twin-visualization/
 
 WMTS 使用 `type: "wmts"` 并配置 `url, layer, style, format, tileMatrixSetID`。本地反向代理 `/maps` 路径需在 Nginx 中增加到局方地图服务的授权映射；当前 nginx.conf 未预设客户地址。部署前核对 CRS、矩阵、覆盖级别、认证、跨域及证书。浏览器配置不得存放天擎凭据或长期敏感令牌。
 
-西安行政边界使用用户提供的 `610100.geojson`，保存在 `apps/web/public/geojson/610100.geojson`，包含13个区县的 MultiPolygon；坐标按文件声明的 CRS84 经纬度读取。`scenarios/xian.json` 通过 `boundaryUrl` 指定同源资源，其他地区未提供边界时保留明确标记的示例边框。边界贴地绘制，支持图层开关及透明度，独立于气象时次加载。更新时保留 Polygon/MultiPolygon 的全部闭合环，不能替换为包围矩形。
+西安行政边界使用用户提供的 `610100.geojson`，保存在 `apps/web/public/geojson/610100.geojson`，包含13个区县的 MultiPolygon；坐标按文件声明的 CRS84 经纬度读取。`scenarios/xian.json` 通过 `boundaryUrl` 指定同源资源，其他地区未提供边界时保留明确标记的示例边框。边界贴地绘制，由基础图层中唯一的“行政边界”开关控制，独立于气象时次加载；透明度控件仅在选中气象要素时显示。更新时保留 Polygon/MultiPolygon 的全部闭合环，不能替换为包围矩形。
 
 ## 项目图标资源
 

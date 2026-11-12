@@ -26,7 +26,7 @@ export class DemoService {
   }
   layers(sceneId: string, scene: SceneConfig = this.scene(sceneId)) {
     return LAYERS.filter((layer) => !scene.enabledLayers || scene.enabledLayers.includes(layer.id)).map((layer) => layer.id === "boundary" && scene.boundaryUrl
-      ? { ...layer, name: `${scene.name}行政边界`, tag: "区县", reason: "用户提供的行政边界数据" }
+      ? { ...layer, name: "行政边界", tag: "区县", reason: `${scene.name}行政边界数据` }
       : layer);
 
   }

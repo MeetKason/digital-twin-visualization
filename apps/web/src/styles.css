@@ -287,6 +287,17 @@ button.primary {
   margin-left: 6px;
   font-weight: 500;
 }
+.header-right .account-menu-trigger.ant-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding-inline: 4px;
+  color: #fff;
+}
+.header-right .account-menu-trigger.ant-btn:hover,
+.header-right .account-menu-trigger.ant-btn:focus-visible { color: #fff; background: #ffffff18; }
+.header-right .account-menu-trigger .icon { width: 20px; height: 20px; }
+.header-right .account-menu-trigger .anticon { font-size: 10px; }
 .demo-badge {
   color: #cfe6ff;
   border: 1px solid #90b9dc75;
@@ -439,6 +450,9 @@ button.primary {
   color: #fff;
   border-color: #237be0;
 }
+.map-toolbar button.active .svgfont {
+  filter: brightness(0) invert(1);
+}
 .panel {
   background: #fff;
   border: 1px solid var(--border);
@@ -552,6 +566,13 @@ button.primary {
   flex: 1;
   font-size: 13px;
   background: transparent;
+}
+/* Ant Button 使用 flex 居中内容；图层名称按目录文字左对齐。 */
+.layer-row .ant-btn.layer-name {
+  justify-content: flex-start;
+  text-align: left;
+  padding-inline: 8px;
+  min-width: 0;
 }
 .tag {
   background: #eaf3ff;
@@ -1366,6 +1387,21 @@ h3 {
   height: 100%;
   overflow: auto;
 }
+.station-page > .station-dictionary {
+  grid-column: 1 / -1;
+  height: auto;
+  min-width: 0;
+  max-height: 42vh;
+  padding: 16px;
+  overflow: auto;
+}
+.station-dictionary .ant-table-wrapper {
+  min-width: 0;
+  margin: 10px 0 20px;
+}
+.station-dictionary .ant-table-cell {
+  overflow-wrap: anywhere;
+}
 .station-profile h3:first-child {
   margin-top: 0;
 }
@@ -1494,11 +1530,15 @@ h3 {
 .settings-page {
   display: grid;
   grid-template-columns: 320px 1fr;
+  min-height: 100%;
+  align-items: start;
   gap: 12px;
 }
 .settings-page > .panel {
   min-width: 0;
 }
+.settings-page > .panel:last-child { max-height: calc(100vh - 80px); overflow: auto; }
+.settings-page > .panel:last-child > .panel-body { overflow: visible; }
 .config-view {
   padding: 16px;
   background: #edf1f6;
@@ -1598,15 +1638,23 @@ h3 {
   background: var(--surface);
 }
 .account-create .ant-form-item {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
   min-width: 0;
   margin-bottom: 16px;
 }
+.account-create .ant-form-item-label { width: 100%; padding: 0 0 6px; text-align: left !important; }
 .account-create .ant-form-item-label > label {
-  display: inline-flex;
-  flex-direction: row;
+  display: inline-flex !important;
+  align-items: center;
+  flex-direction: row !important;
   margin-bottom: 0;
   font-size: 13px;
 }
+.account-create .ant-form-item-control,
+.account-create .ant-form-item-control-input,
+.account-create .ant-form-item-control-input-content { width: 100%; min-width: 0; }
 .account-management .ant-input,
 .account-management .ant-input-affix-wrapper,
 .account-management .ant-select-selector {
@@ -1675,8 +1723,9 @@ h3 {
 }
 .success-text { color: #77d7a2; }
 .audit-page { display: grid; gap: 14px; min-width: 0; }
-.audit-toolbar { display: flex; flex-wrap: wrap; align-items: end; gap: 10px; }
-.audit-toolbar label { display: grid; gap: 5px; min-width: 180px; }
+.audit-toolbar { display: grid; grid-template-columns: minmax(190px, 1.2fr) minmax(160px, .8fr) auto auto; align-items: end; gap: 10px; width: 100%; }
+.audit-toolbar .ant-space-item { min-width: 0; }
+.audit-toolbar label { display: grid; gap: 5px; min-width: 0; margin: 0; text-align: left; }
 .settings-menu {
   width: 100%;
   border: 0;
@@ -1817,6 +1866,7 @@ h3 {
   }
 }
 @media (max-width: 700px) {
+  .audit-toolbar { grid-template-columns: minmax(0, 1fr) minmax(130px, 1fr); }
   .account-create {
     grid-template-columns: minmax(0, 1fr);
     padding: 12px;

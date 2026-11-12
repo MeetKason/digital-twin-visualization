@@ -211,7 +211,7 @@ export function LayerPanel({
           !matchingStations.length && (
             <p className="empty-state">没有匹配的图层或站点</p>
           )}
-        <div className="opacity-control">
+        {category === "weather" && layer?.category === "weather" && layer.opacitySupported && <div className="opacity-control">
           <div>
             <label htmlFor="opacity">图层透明度</label>
             <span>{Math.round((state?.opacity ?? 0.8) * 100)}%</span>
@@ -228,11 +228,7 @@ export function LayerPanel({
               runtime?.setOpacity(selected, Number(e.target.value) / 100)
             }
           />
-          <small>
-            {layer?.name}
-            {!layer?.opacitySupported ? " · 暂不支持透明度" : ""}
-          </small>
-        </div>
+        </div>}
         <div className="data-disclaimer">
           气象产品为 Mock 示例
           <br />

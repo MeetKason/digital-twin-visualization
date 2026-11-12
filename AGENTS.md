@@ -1,5 +1,7 @@
 # Digital Twin Visualization
 
+- **最高优先级 UI 约定：所有新增或调整的业务界面优先采用 Ant Design（antd）组件及其现有主题/交互；优先复用 `apps/web/src/ui/controls.tsx`。只有 Ant Design 无对应能力时才自定义实现，并保持视觉、键盘交互和响应式行为一致。**
+
 - 核心前端 React/TypeScript + Cesium，服务端 NestJS；保持 TypeScript strict。
 - Cesium Viewer 仅允许出现在 apps/web/src/MapView.tsx；插件只调用 @dtv/sdk。
 - 公共契约在 packages/contracts；地区差异写 scenarios JSON，不复制页面。
