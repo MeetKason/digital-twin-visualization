@@ -24,6 +24,7 @@
     "predev": "npm run build:plugin",
     "format": "prettier --write apps packages tests scenarios *.ts *.js *.json",
     "smoke:built": "node scripts/smoke-built.mjs",
+    "check:offline-map": "node scripts/check-offline-map.mjs",
     "test:postgres": "tsx scripts/verify-postgres.ts"
   },
   "dependencies": {

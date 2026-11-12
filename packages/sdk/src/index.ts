@@ -195,6 +195,7 @@ export interface CruiseController {
 }
 export interface MapFacade {
   showCruisePath?(points: import("@dtv/contracts").CruisePoint[]): () => void;
+  showDeviceAlert?(device: { name: string; lon: number; lat: number; alert: string | null }): void;
   tilt?(): void;
   rotate?(): void;
   captureView?(): import("@dtv/contracts").CameraView;

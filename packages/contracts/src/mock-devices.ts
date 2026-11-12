@@ -11,6 +11,8 @@ export interface MockDeviceTelemetry {
   lastSeenAt: string;
   source: "mock";
   protocol: "模拟心跳";
+  location: { lon: number; lat: number };
+  alert: string | null;
 }
 
 /** 本地演示设备，不代表真实设备、真实链路或真实视频状态。 */
@@ -38,6 +40,9 @@ export function demoDevices(scene: SceneConfig, now = new Date()): MockDeviceTel
       lastSeenAt: new Date(now.getTime() - ageMs).toISOString(),
       source: "mock",
       protocol: "模拟心跳",
+      // 固定在场景中心附近，保证每次演示的地图定位结果一致。
+      location: { lon: scene.center[0] + (index % 3 - 1) * 0.035, lat: scene.center[1] + (Math.floor(index / 3) - 0.5) * 0.035 },
+      alert: status === "warning" ? "模拟告警：电池电量偏低" : status === "offline" ? "模拟告警：心跳超时" : null,
     };
   });
 }

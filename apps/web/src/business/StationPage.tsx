@@ -1,5 +1,6 @@
 import { UiButton, UiInput, UiList, UiSelect, UiUpload } from "../ui/controls";
 import { useEffect, useRef, useState } from "react";
+import { Button, Input, Table } from "antd";
 import { Icon } from "../Icon";
 import {
   csvCell,
@@ -8,6 +9,7 @@ import {
   saveStation,
   type ManagedStation,
   type Asset,
+  type StationTypeDefinition,
   type DataFrame,
 } from "@dtv/contracts";
 import type { MapFacade } from "@dtv/sdk";
@@ -52,6 +54,7 @@ export function StationPage({
   allowFiles?:boolean; allowRoam?:boolean;
 }) {
   const { data, update } = business;
+  const typeDefinitions: StationTypeDefinition[] = data.stationTypes?.length ? data.stationTypes : types.map((name) => ({ id: name, name, fields: [] }));
   const alive = useRef(true),
     viewRequest = useRef(0);
   useEffect(
@@ -71,6 +74,8 @@ export function StationPage({
     [report, setReport] = useState<ReturnType<typeof parseStationCsv> | null>(
       null,
     ),
+    [importFileName, setImportFileName] = useState(""),
+    [typeName, setTypeName] = useState(""),
     [draft, setDraft] = useState<ManagedStation | null>(null),
     [viewing, setViewing] = useState<{ url: string; asset: Asset } | null>(
       null,
@@ -180,7 +185,7 @@ export function StationPage({
                   lon: 0,
                   lat: 0,
                   elevationM: 0,
-                  type: types[0],
+                  type: typeDefinitions[0].name,
                   source: "mock",
                   status: "运行正常",
                 });
@@ -196,6 +201,7 @@ export function StationPage({
                 try {
                   const file = e.target.files?.[0];
                   if (!file) return;
+                  setImportFileName(file.name);
                   if (file.size > 2e6)
                     throw new Error("导入文件不得超过 2MB");
                   setReport(
@@ -203,6 +209,7 @@ export function StationPage({
                       await file.text(),
                       data.stations,
                       sceneId,
+                      typeDefinitions,
                     ),
                   );
                   setError("");
@@ -292,7 +299,7 @@ export function StationPage({
                   save(draft, station.id);
                 }}
               >
-                <StationFields value={draft} onChange={setDraft} readonlyId />
+                <StationFields value={draft} onChange={setDraft} definitions={typeDefinitions} readonlyId />
                 <h3>三维模型绑定（可选）</h3>
                 <div className="inline-fields">
                   <UiSelect
@@ -489,7 +496,7 @@ export function StationPage({
               }
             }}
           >
-            <StationFields value={dialog} onChange={setDialog} />
+            <StationFields value={dialog} onChange={setDialog} definitions={typeDefinitions} />
             <label>
               三维模型绑定（可选）
               <UiSelect
@@ -564,9 +571,9 @@ export function StationPage({
           ))}
           <UiButton
             className="primary"
-            disabled={!report.imported.length}
-            onClick={() => {
-              update((old) => ({
+            disabled={!report.imported.length && !report.errors.length && !report.skipped}
+            onClick={async () => {
+              const saved = await update((old) => ({
                 ...old,
                 stations: [
                   ...old.stations,
@@ -574,14 +581,34 @@ export function StationPage({
                     (s) => !old.stations.some((x) => x.id === s.id),
                   ),
                 ],
+                importReports: [...(old.importReports ?? []), { id: crypto.randomUUID(), fileName: importFileName, createdAt: new Date().toISOString(), imported: report.imported.length, skipped: report.skipped, errors: report.errors }].slice(-200),
               }));
-              setReport(null);
+              if (saved) setReport(null);
             }}
           >
-            确认导入
+            保存批次报告并确认导入
           </UiButton>
         </Modal>
       )}
+      <section className="panel" aria-label="站点类型字典与导入记录">
+        <h3>站点类型字典</h3>
+        <Input value={typeName} onChange={(e) => setTypeName(e.target.value)} placeholder="新增类型名称" maxLength={80} />
+        <Button onClick={() => {
+          const name = typeName.trim();
+          if (!name || typeDefinitions.some((item) => item.name === name)) return;
+          void update((old) => ({ ...old, stationTypes: [...typeDefinitions, { id: crypto.randomUUID(), name, fields: [] }] }));
+          setTypeName("");
+        }}>新增类型</Button>
+        <Table size="small" rowKey="id" pagination={false} dataSource={typeDefinitions} columns={[{ title: "类型", dataIndex: "name" }, { title: "扩展字段模板", render: (_, item) => <Input.TextArea aria-label={`${item.name}字段模板`} defaultValue={item.fields.map((field) => `${field.key},${field.name},${field.required ? "必填" : "选填"}`).join("\n")} placeholder="每行：字段键,显示名,必填或选填" onBlur={(e) => {
+          const fields = e.target.value.split("\n").filter(Boolean).map((line) => {
+            const [key, name, flag] = line.split(",").map((part) => part.trim());
+            return { key, name, required: flag === "必填" };
+          });
+          void update((old) => ({ ...old, stationTypes: typeDefinitions.map((definition) => definition.id === item.id ? { ...definition, fields } : definition) }));
+        }} /> }, { title: "操作", render: (_, item) => <Button danger disabled={data.stations.some((station) => station.type === item.name)} onClick={() => void update((old) => ({ ...old, stationTypes: typeDefinitions.filter((definition) => definition.id !== item.id) }))}>删除</Button> }]}/>
+        <h3>导入批次报告</h3>
+        <Table size="small" rowKey="id" dataSource={data.importReports ?? []} columns={[{ title: "文件", dataIndex: "fileName" }, { title: "时间", dataIndex: "createdAt" }, { title: "成功", dataIndex: "imported" }, { title: "跳过", dataIndex: "skipped" }, { title: "错误", render: (_, item) => item.errors.map((error) => `第${error.line}行：${error.message}`).join("；") || "无" }]} />
+      </section>
       {viewing && (
         <Modal
           title={viewing.asset.name}
@@ -612,10 +639,12 @@ function StationFields({
   value,
   onChange,
   readonlyId = false,
+  definitions,
 }: {
   value: ManagedStation;
   onChange: (s: ManagedStation) => void;
   readonlyId?: boolean;
+  definitions: StationTypeDefinition[];
 }) {
   return (
     <div className="form-grid">
@@ -644,11 +673,14 @@ function StationFields({
           value={value.type}
           onChange={(e) => onChange({ ...value, type: e.target.value })}
         >
-          {types.map((t) => (
-            <option key={t}>{t}</option>
+          {definitions.map((t) => (
+            <option key={t.id}>{t.name}</option>
           ))}
         </UiSelect>
       </label>
+      {definitions.find((item) => item.name === value.type)?.fields.map((field) => <label key={field.key}>
+        {field.name}<UiInput required={field.required} value={value.attributes?.[field.key] ?? ""} onChange={(e) => onChange({ ...value, attributes: { ...value.attributes, [field.key]: e.target.value } })} />
+      </label>)}
       <label>
         所属行政区
         <UiInput

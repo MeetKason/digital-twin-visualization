@@ -16,11 +16,25 @@ export interface Bookmark {
   view: CameraView;
 }
 export interface ManagedStation extends Station {
+  attributes?: Record<string, string>;
   region?: string;
   maintenance?: string;
   status?: string;
   modelId?: string;
   bookmarkId?: string;
+}
+export interface StationTypeDefinition {
+  id: string;
+  name: string;
+  fields: { key: string; name: string; required: boolean }[];
+}
+export interface ImportBatchReport {
+  id: string;
+  fileName: string;
+  createdAt: string;
+  imported: number;
+  skipped: number;
+  errors: { line: number; message: string }[];
 }
 export interface Asset {
   id: string;
@@ -72,6 +86,8 @@ export interface BusinessData {
   assets: Asset[];
   plans: CruisePlan[];
   users: DemoUser[];
+  stationTypes?: StationTypeDefinition[];
+  importReports?: ImportBatchReport[];
 }
 export interface BusinessPublication {
   id: string;
@@ -178,6 +194,7 @@ export function parseStationCsv(
   text: string,
   existing: ManagedStation[],
   sceneId: string,
+  definitions?: StationTypeDefinition[],
 ) {
   const rows = csvRows(text.replace(/^\uFEFF/, ""));
   if (!rows.length || !["站点编码", "id"].includes(rows[0][0]))
@@ -186,12 +203,22 @@ export function parseStationCsv(
     errors: { line: number; message: string }[] = [];
   let skipped = 0;
   const known = new Set(existing.map((s) => s.id));
+  const header = rows[0].map((value) => value.trim());
   rows.slice(1).forEach((r, i) => {
     try {
       if (r.length < 4) throw new Error("缺少必填列");
       const [id, name, lon, lat, height = "0", type = "国家有人站"] = r.map(
         (x) => x.trim(),
       );
+      const definition = definitions?.find((item) => item.name === type);
+      if (definitions?.length && !definition) throw new Error(`未知站点类型：${type}`);
+      const attributes: Record<string, string> = {};
+      for (const field of definition?.fields ?? []) {
+        const column = header.indexOf(field.name);
+        const value = column < 0 ? "" : (r[column] ?? "").trim();
+        if (field.required && !value) throw new Error(`${field.name}不能为空`);
+        if (value) attributes[field.key] = value;
+      }
       if (known.has(id)) {
         skipped++;
         return;
@@ -207,6 +234,7 @@ export function parseStationCsv(
         sceneId,
         source: "mock",
         status: "运行正常",
+        attributes,
       };
       saveStation([], item);
       imported.push(item);
@@ -295,6 +323,7 @@ const stationSchema = z.object({
   status: z.string().optional(),
   modelId: z.string().optional(),
   bookmarkId: z.string().optional(),
+  attributes: z.record(z.string().regex(/^[a-z][a-z0-9_]{0,31}$/), z.string().max(500)).optional(),
 });
 const pointSchema = z.object({
   id: stringId,
@@ -356,6 +385,8 @@ const businessSchema = z.object({
       }),
     )
     .max(1000),
+  stationTypes: z.array(z.object({ id: stringId, name: z.string().min(1).max(80), fields: z.array(z.object({ key: z.string().regex(/^[a-z][a-z0-9_]{0,31}$/), name: z.string().min(1).max(80), required: z.boolean() })).max(30) })).max(100).optional(),
+  importReports: z.array(z.object({ id: stringId, fileName: z.string().max(200), createdAt: z.iso.datetime(), imported: z.number().int().nonnegative(), skipped: z.number().int().nonnegative(), errors: z.array(z.object({ line: z.number().int().positive(), message: z.string().max(500) })).max(2000) })).max(200).optional(),
 });
 export function parseBusinessData(raw: unknown, sceneId: string): BusinessData {
   const value = businessSchema.parse(raw);

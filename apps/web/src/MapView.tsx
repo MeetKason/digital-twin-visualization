@@ -739,7 +739,19 @@ export default function MapView({
           drawingSource?.entities.removeAll();
           v.scene.requestRender();
         };
+        let deviceAlertEntity: Entity | undefined;
         const map: MapFacade = {
+          showDeviceAlert: (device) => {
+            if (v.isDestroyed()) return;
+            if (deviceAlertEntity) v.entities.remove(deviceAlertEntity);
+            // 演示设备标记属于当前 Viewer，场景切换销毁 Viewer 时一并释放。
+            deviceAlertEntity = v.entities.add({
+              position: Cartesian3.fromDegrees(device.lon, device.lat),
+              point: { pixelSize: 15, color: device.alert ? Color.ORANGE : Color.CYAN, outlineColor: Color.WHITE, outlineWidth: 2, heightReference: HeightReference.CLAMP_TO_GROUND },
+              label: { text: `${device.name}\n${device.alert ?? "Mock 设备"}`, font: "15px sans-serif", fillColor: Color.WHITE, showBackground: true, pixelOffset: new Cartesian2(0, -28), verticalOrigin: VerticalOrigin.BOTTOM },
+            });
+            v.scene.requestRender();
+          },
           showCruisePath: (points) => {
             const source = new CustomDataSource("cruise-path");
             if (points.length > 1)

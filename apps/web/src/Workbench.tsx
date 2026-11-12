@@ -653,7 +653,7 @@ function WorkArea({
         )}
         {activeMenu === "device" && (
           <Suspense fallback={<p className="muted">正在加载设备监控…</p>}>
-            <DevicePage sceneId={scene.id} />
+            <DevicePage sceneId={scene.id} map={map} business={business} onMap={() => setActiveMenu("home")} />
           </Suspense>
         )}
         {activeMenu === "settings" && (

@@ -1,9 +1,11 @@
 import { TenantAuthorization } from "./TenantAuthorization";
 import { PluginManagement } from "./PluginPanels";
 import type { ProductModule } from "@dtv/contracts";
+import type { MapFacade } from "@dtv/sdk";
 import type { useExtensions } from "../useExtensions";
 import { ScenarioManager } from "./ScenarioManager";
 import { sessionFetch } from "../sessionRequest";
+import { readFile } from "./files";
 import { UiButton } from "../ui/controls";
 import { lazy, Suspense, useCallback, useEffect, useState } from "react";
 import {
@@ -11,6 +13,7 @@ import {
   Button,
   ConfigProvider,
   Menu,
+  Modal,
   Table,
   Tag,
   type TableColumnsType,
@@ -195,7 +198,19 @@ export function SettingsPage({
   );
 }
 
-export function DevicePage({ sceneId }: { sceneId: string }) {
+export function DevicePage({ sceneId, map, onMap, business }: { sceneId: string; map: MapFacade | null; onMap: () => void; business: Business }) {
+  const [videoUrl, setVideoUrl] = useState<string | null>(null);
+  const [videoError, setVideoError] = useState("");
+  const demoVideo = business.data.assets.find((asset) => asset.kind === "video");
+  useEffect(() => () => { if (videoUrl) URL.revokeObjectURL(videoUrl); }, [videoUrl]);
+  const openVideo = async () => {
+    if (!demoVideo) return;
+    try {
+      const blob = await readFile(sceneId, demoVideo.blobId);
+      setVideoUrl(URL.createObjectURL(blob));
+      setVideoError("");
+    } catch (error) { setVideoError((error as Error).message); }
+  };
   const [health, setHealth] = useState<{
       status: string;
       mode: string;
@@ -213,6 +228,8 @@ export function DevicePage({ sceneId }: { sceneId: string }) {
         lastSeenAt: string;
         source: "mock";
         protocol: string;
+        location: { lon: number; lat: number };
+        alert: string | null;
       }[]
     >([]),
     [error, setError] = useState("");
@@ -316,6 +333,18 @@ export function DevicePage({ sceneId }: { sceneId: string }) {
         }),
     },
     { title: "数据源", dataIndex: "protocol", width: 160 },
+    {
+      title: "地图联动",
+      key: "map",
+      width: 145,
+      render: (_, device) => (
+        <Button onClick={() => {
+          map?.showDeviceAlert?.({ name: device.name, ...device.location, alert: device.alert });
+          map?.flyTo(device.location.lon, device.location.lat, 6000);
+          onMap();
+        }}>定位设备</Button>
+      ),
+    },
   ];
   return (
     <section className="business-page device-page panel">
@@ -341,6 +370,17 @@ export function DevicePage({ sceneId }: { sceneId: string }) {
           <span>异常 {warning}</span>
           <span>离线 {offline}</span>
         </div>
+        {devices.filter((device) => device.alert).map((device) => (
+          <Alert key={device.id} type="warning" showIcon message={`${device.name} · ${device.alert}`} action={<><Button size="small" disabled={!demoVideo} onClick={() => void openVideo()}>查看演示视频</Button><Button size="small" onClick={() => {
+            map?.showDeviceAlert?.({ name: device.name, ...device.location, alert: device.alert });
+            map?.flyTo(device.location.lon, device.location.lat, 6000);
+            onMap();
+          }}>地图定位</Button></>} />
+        ))}
+        {videoError && <Alert type="error" showIcon message={videoError} />}
+        <Modal open={!!videoUrl} title="Mock 告警关联视频 · 演示资料" footer={null} onCancel={() => setVideoUrl(null)} destroyOnHidden>
+          {videoUrl && <video controls autoPlay src={videoUrl} style={{ width: "100%" }} />}
+        </Modal>
         <Table
           aria-label="Mock 设备遥测清单"
           className="device-table"

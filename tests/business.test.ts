@@ -64,6 +64,16 @@ describe("点位与方案", () => {
     expect(r.skipped).toBe(1);
     expect(r.errors[0].line).toBe(4);
   });
+  it("按站点类型模板读取扩展字段并报告缺失值", () => {
+    const result = parseStationCsv(
+      "站点编码,名称,经度,纬度,高程,类型,维护单位\nB,测试,109,35,400,雷达站,市气象局\nC,缺失,109,35,400,雷达站,",
+      [],
+      "xian",
+      [{ id: "radar", name: "雷达站", fields: [{ key: "owner", name: "维护单位", required: true }] }],
+    );
+    expect(result.imported[0].attributes?.owner).toBe("市气象局");
+    expect(result.errors).toEqual([{ line: 3, message: "维护单位不能为空" }]);
+  });
   it("两个方案的节点排序互不影响，空方案禁止保存/播放", () => {
     const a = [{ id: "1" }, { id: "2" }],
       b = [...a];
