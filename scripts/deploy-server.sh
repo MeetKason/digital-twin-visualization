@@ -54,7 +54,20 @@ base="$(ssh -p "$port" "$target" "docker ps --filter label=com.docker.compose.pr
 if [[ "$base" =~ ^dtv-server:([0-9a-f]{40})$ ]] && docker image inspect "$base" >/dev/null 2>&1 && git cat-file -e "${BASH_REMATCH[1]}^{commit}" 2>/dev/null; then
  base_commit="${base#dtv-server:}"
 else base_commit=""; fi
-if [[ -n "$base_commit" ]] && git diff --quiet "$base_commit" "$commit" -- package.json package-lock.json ':(glob)apps/*/package.json' ':(glob)packages/*/package.json'; then
+same_dependencies=false
+if [[ -n "$base_commit" ]] && git diff --quiet "$base_commit" "$commit" -- package-lock.json ':(glob)apps/*/package.json' ':(glob)packages/*/package.json'; then
+ git show "$base_commit:package.json" > "$context/base-package.json"
+ # npm脚本或说明文字变化不改变运行依赖；只对实际安装契约进行比较。
+ if node - "$context/base-package.json" "$context/source/package.json" <<'NODE'
+const fs = require('node:fs');
+const [oldFile, newFile] = process.argv.slice(2);
+const fields = ['workspaces', 'engines', 'dependencies', 'devDependencies', 'optionalDependencies', 'peerDependencies', 'overrides', 'packageManager'];
+const pick = (file) => { const value = JSON.parse(fs.readFileSync(file, 'utf8')); return Object.fromEntries(fields.map((field) => [field, value[field] ?? null])); };
+process.exit(JSON.stringify(pick(oldFile)) === JSON.stringify(pick(newFile)) ? 0 : 1);
+NODE
+ then same_dependencies=true; fi
+fi
+if [[ "$same_dependencies" == true ]]; then
  cat > "$context/server/Dockerfile" <<'DOCKERFILE'
 ARG DTV_SERVER_BASE
 FROM ${DTV_SERVER_BASE}
