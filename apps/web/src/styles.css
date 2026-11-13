@@ -297,6 +297,7 @@ button.primary {
 .header-right .account-menu-trigger.ant-btn:hover,
 .header-right .account-menu-trigger.ant-btn:focus-visible { color: #fff; background: #ffffff18; }
 .header-right .account-menu-trigger .icon { width: 20px; height: 20px; }
+.header-right .account-menu-trigger .svgfont { filter: brightness(0) invert(1); }
 .header-right .account-menu-trigger .anticon { font-size: 10px; }
 .demo-badge {
   color: #cfe6ff;
@@ -1353,11 +1354,9 @@ h3 {
   color: #6e7f93;
   flex: 1;
 }
-.cruise-playback progress {
-  width: 100%;
-  height: 8px;
-  accent-color: #1263c4;
-}
+.cruise-playback .cruise-progress-slider { flex: 1 0 100%; margin: 8px 12px 22px; }
+.cruise-playback .cruise-progress-slider .ant-slider-mark-text { font-size: 10px; white-space: nowrap; color: #6e7f93; }
+.cruise-playback .cruise-progress-slider .ant-slider-mark { top: 14px; }
 .bookmark-chips {
   display: flex;
   flex-wrap: wrap;
@@ -2050,6 +2049,14 @@ h3 {
 .topic-catalog, .topic-metrics { bottom: calc(var(--topic-table-height) + 28px); overflow: auto; }
 .topic-catalog .panel-body { display: flex; flex-direction: column; gap: 12px; }
 .topic-catalog .muted, .topic-catalog .data-disclaimer { margin: 0; }
+.weather-analysis-controls { display: grid; gap: 8px; }
+.weather-analysis-controls label { display: grid; gap: 4px; margin: 0; color: #52677e; font-size: 11px; }
+.weather-analysis-controls .ant-select { width: 100%; }
+.weather-analysis-controls .ant-select-selector { min-height: 32px; }
+.weather-topic-menu .ant-menu-item { height: auto; min-height: 48px; line-height: 1.35; padding-block: 7px; }
+.weather-topic-item { display: flex; flex-direction: column; gap: 3px; white-space: normal; }
+.weather-topic-item strong { font-size: 12px; font-weight: 500; }
+.weather-topic-item small { color: #6e7f93; font-size: 10px; }
 .weather-topic-menu.ant-menu { border-inline-end: 0; background: transparent; }
 .weather-topic-menu .ant-menu-item { width: 100%; height: auto; min-height: 46px; line-height: 1.5; display: flex; align-items: center; margin: 0 0 8px; padding: 12px !important; border: 1px solid #dbe3ec; border-radius: 6px; }
 .weather-topic-menu .ant-menu-title-content { white-space: normal; }

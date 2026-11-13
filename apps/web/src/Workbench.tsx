@@ -176,9 +176,9 @@ export default function Workbench({ onExit }: { onExit: () => void }) {
             </div>
           </div>
           <div className="header-right">
-            <span className="demo-badge">
-              {profile?.kind === "demo" ? "隔离演示租户" : "服务端会话"}
-            </span>
+            {profile?.kind === "demo" && (
+              <span className="demo-badge">隔离演示租户</span>
+            )}
             <UiSelect
               aria-label="地区场景"
               value={sceneId}
@@ -632,7 +632,7 @@ function WorkArea({
             <PluginPage key={route.id} route={route} map={map} />
           ))}
         <EnvironmentOverlay value={environment} />
-        {station && activeMenu === "home" && (
+        {station && (activeMenu === "home" || activeMenu === "weather") && (
           <StationDetails
             station={station}
             extension={extension}
@@ -659,6 +659,8 @@ function WorkArea({
             runtime={runtime}
             sceneId={scene.id}
             time={time}
+            times={times}
+            onStation={pickStation}
           />
         )}
         {activeMenu === "device" && (

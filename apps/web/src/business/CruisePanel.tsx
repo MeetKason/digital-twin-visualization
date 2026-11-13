@@ -1,4 +1,5 @@
 import { UiButton, UiInput, UiSelect } from "../ui/controls";
+import { Slider } from "antd";
 import { useEffect, useRef, useState } from "react";
 import { Icon } from "../Icon";
 import type { CruiseController, CruiseProgress, MapFacade } from "@dtv/sdk";
@@ -520,6 +521,13 @@ export function CruisePanel({
             ? `${progress.state === "playing" ? "自动漫游进行中" : progress.state === "paused" ? "已暂停" : progress.state === "complete" ? "漫游完成" : "已停止"} · 节点 ${progress.index + 1}/${plan?.points.length ?? 0} · ${progress.phase === "transition" ? "转场" : "环绕"}`
             : "保存方案后开始漫游"}
         </span>
+        <UiButton
+          aria-label="上一巡航点"
+          disabled={!running || !progress || progress.index <= 0}
+          onClick={() => controller.current?.seek((progress?.index ?? 0) - 1)}
+        >
+          <Icon name="previous" size={18} />
+        </UiButton>
         {running && (
           <>
             <UiButton
@@ -535,7 +543,24 @@ export function CruisePanel({
             <UiButton onClick={() => controller.current?.stop()}>停止漫游</UiButton>
           </>
         )}
-        <progress value={progress?.fraction ?? 0} max={1} />
+        <UiButton
+          aria-label="下一巡航点"
+          disabled={!running || !progress || !plan || progress.index >= plan.points.length - 1}
+          onClick={() => controller.current?.seek((progress?.index ?? 0) + 1)}
+        >
+          <Icon name="next" size={18} />
+        </UiButton>
+        <Slider
+          className="cruise-progress-slider"
+          aria-label="巡航节点进度"
+          min={0}
+          max={Math.max(0, (plan?.points.length ?? 1) - 1)}
+          step={0.01}
+          disabled={!running || !progress || (plan?.points.length ?? 0) < 2}
+          value={progress ? progress.index + progress.fraction : 0}
+          marks={Object.fromEntries((plan?.points ?? []).map((point, index) => [index, `节点${index + 1}`]))}
+          onChange={(value) => controller.current?.seek(Number(value))}
+        />
       </section>
       {picker && (
         <Modal title="从站点添加" onClose={() => setPicker(false)}>

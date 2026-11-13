@@ -191,6 +191,8 @@ export interface CruiseProgress {
 export interface CruiseController {
   pause(): void;
   resume(): void;
+  /** 跳转到指定巡航节点，并从该节点的环绕阶段继续播放。 */
+  seek(index: number): void;
   stop(): void;
 }
 export interface MapFacade {

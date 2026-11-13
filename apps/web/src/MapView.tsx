@@ -166,14 +166,14 @@ export default function MapView({
         v.scene.verticalExaggerationRelativeHeight = 0;
         const home = () =>
           v.camera.flyTo({
-            // 默认采用区域级俯视构图，让完整行政区和周边地形同时进入视野。
+            // 默认采用参考图的区域级近垂直俯视构图，完整呈现行政边界和周边地形。
             destination: Cartesian3.fromDegrees(
               ...scene.center,
-              scene.height * 0.65,
+              scene.height,
             ),
             orientation: {
               heading: 0,
-              pitch: CesiumMath.toRadians(-55),
+              pitch: CesiumMath.toRadians(-75),
               roll: 0,
             },
             duration: 0.7,
@@ -903,6 +903,24 @@ export default function MapView({
                       : points[index].duration),
                 ),
               });
+            // 节点跳转后直接对准目标站点，并沿用节点保存的相机视角参数。
+            const focusPoint = (point: (typeof points)[number]) => {
+              v.camera.lookAt(
+                Cartesian3.fromDegrees(point.lon, point.lat, point.height),
+                new HeadingPitchRange(
+                  point.view?.heading ?? 0,
+                  point.view?.pitch ?? CesiumMath.toRadians(point.pitch),
+                  point.view
+                    ? Math.max(
+                        100,
+                        point.view.height /
+                          Math.max(0.1, Math.abs(Math.sin(point.view.pitch))),
+                      )
+                    : point.radius,
+                ),
+              );
+              v.scene.requestRender();
+            };
             const stop = () => {
               if (stopped) return;
               stopped = true;
@@ -998,6 +1016,14 @@ export default function MapView({
                 paused = false;
                 last = performance.now();
                 report("playing");
+              },
+              seek(nextIndex) {
+                if (stopped || !Number.isFinite(nextIndex)) return;
+                index = Math.max(0, Math.min(points.length - 1, Math.round(nextIndex)));
+                phase = "orbit";
+                elapsed = 0;
+                focusPoint(points[index]);
+                report(paused ? "paused" : "playing");
               },
               stop,
             };
