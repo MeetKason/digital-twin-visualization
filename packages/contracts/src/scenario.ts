@@ -22,6 +22,9 @@ export const ScenarioPackSchema = z
   .strict()
   .superRefine((pack, ctx) => {
     const menus = pack.scene.ui?.menus;
+    const settingsSections = pack.scene.ui?.settingsSections;
+    if (settingsSections && new Set(settingsSections).size !== settingsSections.length)
+      ctx.addIssue({ code: "custom", path: ["scene", "ui", "settingsSections"], message: "系统管理子菜单不能重复" });
     // 导航和主色承载白色文字，拒绝几乎不可读的浅色组合。
     for (const [field, color] of Object.entries(pack.scene.ui?.theme ?? {})) {
       if (!/^#[0-9a-fA-F]{6}$/.test(color)) continue;

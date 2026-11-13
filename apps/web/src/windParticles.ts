@@ -1,5 +1,6 @@
 import { Cartesian3, type Scene } from "cesium";
 import type { WeatherGridCell } from "@dtv/contracts";
+import { administrativeBounds, type AdministrativePolygons } from "./administrativeBoundary";
 
 interface WindParticle {
   lon: number;
@@ -24,6 +25,7 @@ export function createWindParticleOverlay(
   host: HTMLElement,
   scene: Scene,
   cells: WeatherGridCell[],
+  polygons?: AdministrativePolygons | null,
 ): { setOpacity: (opacity: number) => void; dispose: () => void } | null {
   const vectors: WindVector[] = cells.flatMap((cell) => {
     if (
@@ -47,12 +49,47 @@ export function createWindParticleOverlay(
   });
   if (!vectors.length) return null;
 
-  const bounds: [number, number, number, number] = [
+  const cellBounds: [number, number, number, number] = [
     Math.min(...cells.map((cell) => cell.bounds[0])),
     Math.min(...cells.map((cell) => cell.bounds[1])),
     Math.max(...cells.map((cell) => cell.bounds[2])),
     Math.max(...cells.map((cell) => cell.bounds[3])),
   ];
+  const bounds = polygons?.length ? administrativeBounds(polygons) : cellBounds;
+  // 将复杂区划一次性栅格化为占用表；动画帧只查像素，不逐帧遍历区县边界顶点。
+  const coverage = polygons?.length ? (() => {
+    const mask = document.createElement("canvas");
+    mask.width = 384;
+    mask.height = 384;
+    const ctx = mask.getContext("2d");
+    if (!ctx) return null;
+    ctx.fillStyle = "#fff";
+    for (const rings of polygons) {
+      ctx.beginPath();
+      for (const ring of rings) {
+        ring.forEach(([lon, lat], index) => {
+          const x = ((lon - bounds[0]) / (bounds[2] - bounds[0])) * mask.width;
+          const y = ((bounds[3] - lat) / (bounds[3] - bounds[1])) * mask.height;
+          if (index === 0) ctx.moveTo(x, y);
+          else ctx.lineTo(x, y);
+        });
+        ctx.closePath();
+      }
+      ctx.fill("evenodd");
+    }
+    const alpha = ctx.getImageData(0, 0, mask.width, mask.height).data;
+    const filled: number[] = [];
+    for (let pixel = 0; pixel < mask.width * mask.height; pixel++)
+      if (alpha[pixel * 4 + 3] > 127) filled.push(pixel);
+    return { alpha, filled, width: mask.width, height: mask.height };
+  })() : null;
+  const inside = (lon: number, lat: number) => {
+    if (!coverage) return true;
+    const x = Math.floor(((lon - bounds[0]) / (bounds[2] - bounds[0])) * coverage.width);
+    const y = Math.floor(((bounds[3] - lat) / (bounds[3] - bounds[1])) * coverage.height);
+    return x >= 0 && x < coverage.width && y >= 0 && y < coverage.height &&
+      coverage.alpha[(y * coverage.width + x) * 4 + 3] > 127;
+  };
   const canvas = document.createElement("canvas");
   canvas.className = "wind-particle-overlay";
   canvas.setAttribute("aria-hidden", "true");
@@ -69,13 +106,22 @@ export function createWindParticleOverlay(
       return seed / 4294967296;
     };
   })();
-  const makeParticle = (): WindParticle => ({
-    lon: bounds[0] + random() * (bounds[2] - bounds[0]),
-    lat: bounds[1] + random() * (bounds[3] - bounds[1]),
-    previous: [],
-    speed: 0,
-  });
-  const particles = Array.from({ length: 180 }, makeParticle);
+  const makeParticle = (): WindParticle => {
+    const pixel = coverage?.filled.length
+      ? coverage.filled[Math.floor(random() * coverage.filled.length)]
+      : undefined;
+    return {
+      lon: pixel === undefined
+        ? bounds[0] + random() * (bounds[2] - bounds[0])
+        : bounds[0] + ((pixel % coverage!.width + 0.5) / coverage!.width) * (bounds[2] - bounds[0]),
+      lat: pixel === undefined
+        ? bounds[1] + random() * (bounds[3] - bounds[1])
+        : bounds[3] - ((Math.floor(pixel / coverage!.width) + 0.5) / coverage!.height) * (bounds[3] - bounds[1]),
+      previous: [],
+      speed: 0,
+    };
+  };
+  const particles = Array.from({ length: 420 }, makeParticle);
   let frame = 0;
   let previousTime = 0;
   let opacity = 0.9;
@@ -138,7 +184,8 @@ export function createWindParticleOverlay(
         particle.lon < bounds[0] ||
         particle.lon > bounds[2] ||
         particle.lat < bounds[1] ||
-        particle.lat > bounds[3]
+        particle.lat > bounds[3] ||
+        !inside(particle.lon, particle.lat)
       ) {
         Object.assign(particle, makeParticle());
         continue;

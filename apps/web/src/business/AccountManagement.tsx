@@ -12,6 +12,7 @@ import {
   type TableColumnsType,
 } from "antd";
 import { authApi, accountAdminApi, type ManagedAccount } from "../api";
+import { SettingsSectionIds, SettingsSectionNames, type SettingsSectionId } from "@dtv/contracts";
 
 const scenes = ["xian", "taiyuan", "chengdu"] as const;
 const sceneNames: Record<(typeof scenes)[number], string> = {
@@ -32,10 +33,11 @@ const roleOptions = Object.entries(roles).map(([value, label]) => ({
   value,
   label,
 }));
+const sectionOptions = SettingsSectionIds.map((value) => ({ value, label: SettingsSectionNames[value] }));
 type AccountDraft = Omit<ManagedAccount, "id">;
 type CreateAccountForm = Pick<
   ManagedAccount,
-  "id" | "tenantId" | "role" | "scenes"
+  "id" | "tenantId" | "role" | "scenes" | "settingsSections"
 > & {
   password: string;
 };
@@ -121,6 +123,7 @@ export function AccountManagement() {
       tenantId: account.tenantId,
       role: account.role,
       scenes: account.scenes,
+      settingsSections: account.settingsSections ?? (account.role === "admin" ? [...SettingsSectionIds] : []),
       disabled: !!account.disabled,
     });
   };
@@ -214,6 +217,26 @@ export function AccountManagement() {
             )
             .join("、")
         ),
+    },
+    {
+      title: "系统管理权限",
+      dataIndex: "settingsSections",
+      key: "settingsSections",
+      width: 260,
+      render: (_sections: SettingsSectionId[] | undefined, account) => {
+        const granted = account.settingsSections ?? (account.role === "admin" ? [...SettingsSectionIds] : []);
+        return editingId === account.id ? (
+          <Select
+            mode="multiple"
+            aria-label={`${account.id} 系统管理权限`}
+            options={sectionOptions}
+            value={rowDraft?.settingsSections ?? granted}
+            maxTagCount="responsive"
+            style={{ width: "100%" }}
+            onChange={(settingsSections) => setRowDraft((draft) => draft ? { ...draft, settingsSections } : draft)}
+          />
+        ) : granted.length ? `${granted.length} 项` : "无";
+      },
     },
     {
       title: "状态",
@@ -372,6 +395,7 @@ export function AccountManagement() {
             tenantId: ownTenant,
             role: "viewer",
             scenes: sceneIds.slice(0, 1),
+            settingsSections: [],
           }}
           onFinish={(values) =>
             void run(async () => {
@@ -423,6 +447,9 @@ export function AccountManagement() {
               options={sceneOptions}
             />
           </Form.Item>
+          <Form.Item label="系统管理权限" name="settingsSections">
+            <Select mode="multiple" options={sectionOptions} maxTagCount="responsive" placeholder="不开放系统管理" />
+          </Form.Item>
           <Form.Item
             label="初始密码（至少 12 位）"
             name="password"
@@ -451,7 +478,7 @@ export function AccountManagement() {
         dataSource={accounts}
         loading={busy && !creating}
         pagination={{ pageSize: 10, hideOnSinglePage: true }}
-        scroll={{ x: 1020 }}
+        scroll={{ x: 1280 }}
         locale={{ emptyText: error ? "账号清单加载失败" : "暂无账号" }}
       />
     </div>

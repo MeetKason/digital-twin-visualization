@@ -11,6 +11,7 @@ import {
   HttpException,
 } from "@nestjs/common";
 import type { Principal, Repository, Role } from "./repository";
+import type { SettingsSectionId } from "@dtv/contracts";
 export interface Account {
   id: string;
   tenantId: string;
@@ -18,6 +19,7 @@ export interface Account {
   scenes: string[];
   passwordHash: string;
   disabled?: boolean;
+  settingsSections?: SettingsSectionId[];
 }
 /** 为新账号生成带随机盐的 scrypt 摘要；明文密码不会进入持久化数据。 */
 export function hashPassword(password: string) {
@@ -84,6 +86,7 @@ export class AuthService {
         tenantId: account.tenantId,
         role: account.role,
         scenes: account.scenes,
+        settingsSections: account.settingsSections,
         kind: "account",
         platformAdmin:
           account.role === "admin" && this.platformAdmins.includes(account.id),
@@ -147,6 +150,7 @@ export class AuthService {
       tenantId: account.tenantId,
       role: account.role,
       scenes: account.scenes,
+      settingsSections: account.settingsSections,
       platformAdmin:
         account.role === "admin" && this.platformAdmins.includes(account.id),
     };

@@ -286,17 +286,3 @@ export function ToolsPanel({
     </section>
   );
 }
-export function EnvironmentOverlay({ value }: { value: Environment }) {
-  if (value !== "fog") return null;
-  return (
-    <div
-      className={`environment-overlay ${value}`}
-      aria-label="雾效模拟"
-    >
-      <div className="particles" />
-      <span>
-        视觉模拟 · 雾
-      </span>
-    </div>
-  );
-}

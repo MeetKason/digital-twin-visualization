@@ -7,6 +7,9 @@ import {
 import {
   ScenarioDocumentSchema,
   ScenarioPackSchema,
+  effectiveSettingsSections,
+  SettingsSectionIds,
+  type SettingsSectionId,
   type ScenarioDocument,
   type ScenarioRevision,
   type SceneConfig,
@@ -18,9 +21,27 @@ import { DemoService } from "../service";
 export class ScenarioCatalog {
   private defaults = new DemoService();
   constructor(private readonly repo: Repository) {}
-  private authorize(user: Principal, id: string) {
+  /** 地区权限上限只允许平台最高管理员或隔离演示账号调整，避免租户管理员提权。 */
+  private assertSectionCeiling(user: Principal, before?: readonly SettingsSectionId[], after?: readonly SettingsSectionId[]) {
+    if (user.platformAdmin || user.kind === "demo") return;
+    const oldIds = [...(before ?? SettingsSectionIds)].sort();
+    const newIds = [...(after ?? SettingsSectionIds)].sort();
+    if (JSON.stringify(oldIds) !== JSON.stringify(newIds))
+      throw new ForbiddenException("仅平台最高管理员可修改系统管理子菜单上限");
+  }
+  private async authorize(user: Principal, id: string) {
     if (user.role !== "admin" || !user.scenes.includes(id))
       throw new ForbiddenException("仅有该地区授权的管理员可管理场景包");
+    if (user.platformAdmin || user.kind === "demo") return;
+    let scene: SceneConfig | undefined;
+    try {
+      scene = await this.active(user.tenantId, id);
+    } catch (error) {
+      if (!(error instanceof NotFoundException)) throw error;
+      // 新地区尚无已发布包时，先按账号授权允许创建首个草稿。
+    }
+    if (!effectiveSettingsSections(scene?.ui?.settingsSections, user.settingsSections, user.role, false).includes("scenarios"))
+      throw new ForbiddenException("未授权管理该地区场景包");
   }
   private async stored(
     tenant: string,
@@ -65,7 +86,7 @@ export class ScenarioCatalog {
     return scenes;
   }
   async read(user: Principal, id: string): Promise<ScenarioRevision> {
-    this.authorize(user, id);
+    await this.authorize(user, id);
     const stored = await this.stored(user.tenantId, id);
     if (stored) return stored;
     const builtin = this.defaults.scenes().find((scene) => scene.id === id);
@@ -113,6 +134,11 @@ export class ScenarioCatalog {
     const parsed = ScenarioPackSchema.safeParse(raw);
     if (!parsed.success || parsed.data.scene.id !== id)
       throw new BadRequestException("场景包格式、依赖、版本或地区ID无效");
+    this.assertSectionCeiling(
+      user,
+      current.data.draft?.scene.ui?.settingsSections ?? current.data.published?.scene.ui?.settingsSections,
+      parsed.data.scene.ui?.settingsSections,
+    );
     if (expected !== current.revision)
       throw new ConflictException("配置修订冲突，请重新加载");
     return this.write(
@@ -128,6 +154,8 @@ export class ScenarioCatalog {
     if (expected !== current.revision)
       throw new ConflictException("配置修订冲突，请重新加载");
     if (!current.data.draft) throw new BadRequestException("没有可发布的草稿");
+    this.assertSectionCeiling(user, current.data.published?.scene.ui?.settingsSections,
+      current.data.draft.scene.ui?.settingsSections);
     const pack = current.data.draft;
     return this.write(
       user,
@@ -158,6 +186,8 @@ export class ScenarioCatalog {
     );
     if (!snapshot)
       throw new NotFoundException("历史场景版本不存在或已超出保留范围");
+    this.assertSectionCeiling(user, current.data.published?.scene.ui?.settingsSections,
+      snapshot.pack.scene.ui?.settingsSections);
     return this.write(
       user,
       id,

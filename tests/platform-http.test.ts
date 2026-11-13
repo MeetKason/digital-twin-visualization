@@ -147,6 +147,28 @@ it("真实 HTTP：跨租户隔离、角色拒写、CSRF、并发修订、服务�
       ),
     ).toBe(true);
     expect((await call("/admin/accounts", v.cookie)).status).toBe(403);
+    const limited = await call("/admin/accounts", a.cookie, "POST", {
+      id: "alpha-limited",
+      tenantId: "alpha",
+      role: "admin",
+      scenes: ["xian"],
+      settingsSections: ["audit"],
+      password: "limited-admin-password-123",
+    });
+    expect(limited.status).toBe(201);
+    const restricted = await login("alpha-limited", "limited-admin-password-123");
+    const restrictedScenes = await (await call("/scenes", restricted.cookie)).json();
+    expect(restrictedScenes[0].ui.settingsSections).toEqual(["audit"]);
+    expect((await call("/admin/accounts", restricted.cookie)).status).toBe(403);
+    expect((await call("/scenes/xian/scenario-pack", restricted.cookie)).status).toBe(403);
+    expect((await call("/scenes/xian/publications", restricted.cookie)).status).toBe(403);
+    expect((await call("/audit", restricted.cookie)).status).toBe(200);
+    expect((await call("/admin/accounts/alpha-limited", a.cookie, "PUT", {
+      tenantId: "alpha", role: "admin", scenes: ["xian"], disabled: false,
+      settingsSections: ["accounts"],
+    })).status).toBe(200);
+    expect((await call("/admin/accounts", restricted.cookie)).status).toBe(200);
+    expect((await call("/audit", restricted.cookie)).status).toBe(403);
     const created = await call("/admin/accounts", a.cookie, "POST", {
       id: "alpha-new",
       tenantId: "alpha",

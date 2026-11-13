@@ -198,7 +198,7 @@ export interface CruiseController {
 export interface MapFacade {
   /** 在地图场景中切换 Cesium 雨、雪和雾效果。 */
   setEnvironment?(environment: "none" | "rain" | "snow" | "fog"): void;
-  showCruisePath?(points: import("@dtv/contracts").CruisePoint[]): () => void;
+  showCruisePath?(points: import("@dtv/contracts").CruisePoint[], routeHeightM?: number): () => void;
   showDeviceAlert?(device: { name: string; lon: number; lat: number; alert: string | null }): void;
   tilt?(): void;
   rotate?(): void;
@@ -218,6 +218,7 @@ export interface MapFacade {
     points: import("@dtv/contracts").CruisePoint[],
     onProgress: (progress: CruiseProgress) => void,
     defaultSpeedMps?: number,
+    routeHeightM?: number,
   ): CruiseController;
   placeModel?(
     url: string,

@@ -3,6 +3,7 @@ import {
   rasterizeWeather,
 } from "./weatherRendering";
 import { createWindParticleOverlay } from "./windParticles";
+import { createWeatherPostProcess } from "./weatherPostProcess";
 import { ImageryRecovery } from "./imageryRecovery";
 import { UiButton } from "./ui/controls";
 import { useEffect, useRef, useState } from "react";
@@ -28,8 +29,6 @@ import {
   ColorMaterialProperty,
   ImageMaterialProperty,
   PolylineArrowMaterialProperty,
-  ParticleSystem,
-  SphereEmitter,
   Cartesian2,
   LabelStyle,
   VerticalOrigin,
@@ -55,7 +54,7 @@ import type {
 import { LayerRuntime, type LayerHandle, type MapFacade } from "@dtv/sdk";
 import { api, runtimeConfig } from "./api";
 import { distanceMeters, areaMeters, type Coordinate } from "@dtv/contracts";
-import { parseAdministrativeBoundary } from "./administrativeBoundary";
+import { administrativeBounds, parseAdministrativeBoundary, parseAdministrativePolygons } from "./administrativeBoundary";
 import { createTiandituProvider } from "./tianditu";
 import { createTiandituTerrainProvider } from "./tiandituTerrain";
 import { createStationMarker } from "./stationIcons";
@@ -73,6 +72,37 @@ interface Props {
     signal: AbortSignal,
   ) => Promise<DataFrame | null>;
   onFrame?: (id: string, frame: DataFrame) => void;
+}
+
+/** 用区划多边形生成透明蒙版；逐面采用 evenodd，内环会正确露出底图。 */
+function clipRasterToBoundary(
+  canvas: HTMLCanvasElement,
+  bounds: [number, number, number, number],
+  polygons: ReturnType<typeof parseAdministrativePolygons>,
+) {
+  const mask = document.createElement("canvas");
+  mask.width = canvas.width;
+  mask.height = canvas.height;
+  const maskContext = mask.getContext("2d");
+  const context = canvas.getContext("2d");
+  if (!maskContext || !context) throw new Error("浏览器无法创建行政边界蒙版");
+  maskContext.fillStyle = "#fff";
+  for (const rings of polygons) {
+    maskContext.beginPath();
+    for (const ring of rings) {
+      ring.forEach(([lon, lat], index) => {
+        const x = ((lon - bounds[0]) / (bounds[2] - bounds[0])) * canvas.width;
+        const y = ((bounds[3] - lat) / (bounds[3] - bounds[1])) * canvas.height;
+        if (index === 0) maskContext.moveTo(x, y);
+        else maskContext.lineTo(x, y);
+      });
+      maskContext.closePath();
+    }
+    maskContext.fill("evenodd");
+  }
+  context.globalCompositeOperation = "destination-in";
+  context.drawImage(mask, 0, 0);
+  context.globalCompositeOperation = "source-over";
 }
 
 export default function MapView({
@@ -155,10 +185,7 @@ export default function MapView({
         const v = viewer;
         viewerRef.current = v;
         const skyAtmosphere = v.scene.skyAtmosphere;
-        let weatherSystem: ParticleSystem | undefined;
-        let weatherFrame = 0;
-        let weatherWasAnimating = false;
-        let removeWeatherCameraListener: (() => void) | undefined;
+        let disposeWeatherEffect: (() => void) | undefined;
         const baseWeatherAppearance = {
           fogEnabled: v.scene.fog.enabled,
           fogDensity: v.scene.fog.density,
@@ -168,138 +195,37 @@ export default function MapView({
           atmosphereBrightness: skyAtmosphere?.brightnessShift,
         };
         const clearWeather = () => {
-          cancelAnimationFrame(weatherFrame);
-          removeWeatherCameraListener?.();
-          removeWeatherCameraListener = undefined;
-          if (weatherSystem && !v.isDestroyed())
-            v.scene.primitives.remove(weatherSystem);
-          weatherSystem = undefined;
-          // 每次切换天气先还原 Cesium 场景原始大气参数，避免效果叠加。
+          disposeWeatherEffect?.();
+          disposeWeatherEffect = undefined;
+          // 切换天气时还原场景大气参数，避免多个效果叠加。
           v.scene.fog.enabled = baseWeatherAppearance.fogEnabled;
           v.scene.fog.density = baseWeatherAppearance.fogDensity;
-          v.scene.fog.minimumBrightness =
-            baseWeatherAppearance.fogMinimumBrightness;
+          v.scene.fog.minimumBrightness = baseWeatherAppearance.fogMinimumBrightness;
           if (skyAtmosphere) {
             skyAtmosphere.hueShift = baseWeatherAppearance.atmosphereHue ?? 0;
-            skyAtmosphere.saturationShift =
-              baseWeatherAppearance.atmosphereSaturation ?? 0;
-            skyAtmosphere.brightnessShift =
-              baseWeatherAppearance.atmosphereBrightness ?? 0;
+            skyAtmosphere.saturationShift = baseWeatherAppearance.atmosphereSaturation ?? 0;
+            skyAtmosphere.brightnessShift = baseWeatherAppearance.atmosphereBrightness ?? 0;
           }
-          v.clock.shouldAnimate = weatherWasAnimating;
-          v.scene.requestRender();
+          if (!v.isDestroyed()) v.scene.requestRender();
         };
         const setWeather = (kind: "none" | "rain" | "snow" | "fog") => {
           clearWeather();
           if (kind === "none" || v.isDestroyed()) return;
-          if (kind === "fog") {
-            // 使用 Cesium 原生距离雾，沿地平线渐隐地形，不覆盖本地站点标记。
-            v.scene.fog.enabled = true;
-            v.scene.fog.density = 0.001;
-            v.scene.fog.minimumBrightness = 0.68;
-            v.scene.requestRender();
-            return;
-          }
-          weatherWasAnimating = v.clock.shouldAnimate;
-          v.clock.shouldAnimate = true;
-          // 轻微改变天空散射色，参考 Cesium 官方雨雪示例营造阴雨/降雪氛围。
+          // 对齐 Mars3D 的后处理机制，效果始终覆盖当前相机视口。
+          disposeWeatherEffect = createWeatherPostProcess(v.scene, kind);
           if (kind === "rain") {
             if (skyAtmosphere) {
               skyAtmosphere.hueShift = -0.12;
               skyAtmosphere.saturationShift = -0.18;
               skyAtmosphere.brightnessShift = -0.16;
             }
-            v.scene.fog.enabled = true;
-            v.scene.fog.density = 0.00025;
-            v.scene.fog.minimumBrightness = 0.22;
-          } else {
+          } else if (kind === "snow") {
             if (skyAtmosphere) {
               skyAtmosphere.hueShift = -0.08;
               skyAtmosphere.saturationShift = -0.32;
               skyAtmosphere.brightnessShift = -0.08;
             }
-            v.scene.fog.enabled = true;
-            v.scene.fog.density = 0.00065;
-            v.scene.fog.minimumBrightness = 0.72;
           }
-          // 天气是贴近视点的视觉效果。原来的 100 公里发射球让多数粒子离镜头过远，
-          // 即使物理速度很高，屏幕上的下落仍几乎不可见。
-          const radius = kind === "rain" ? 95 : 70;
-          const particleSize = Math.max(
-            8,
-            Math.min(18, v.scene.drawingBufferWidth / (kind === "rain" ? 120 : 160)),
-          );
-          const fallDirection = new Cartesian3();
-          const windDirection = new Cartesian3();
-          const updateWeatherParticle: ParticleSystem.updateCallback = (
-            particle,
-          ) => {
-            // 每帧按米/秒指定速度；不累积随机加速度，避免帧率变化造成忽快忽慢。
-            Cartesian3.negate(
-              Cartesian3.normalize(particle.position, fallDirection),
-              fallDirection,
-            );
-            const speed = kind === "rain"
-              ? 25 + 5 * Math.sin(particle.position.x * 0.1)
-              : 2.4 + 0.7 * Math.sin(particle.position.x * 0.1);
-            Cartesian3.multiplyByScalar(fallDirection, speed, particle.velocity);
-            Cartesian3.multiplyByScalar(
-              v.camera.rightWC,
-              kind === "rain" ? 2.5 : 0.7 * Math.sin(particle.age * 1.4),
-              windDirection,
-            );
-            Cartesian3.add(particle.velocity, windDirection, particle.velocity);
-            const distance = Cartesian3.distance(
-              v.camera.positionWC,
-              particle.position,
-            );
-            particle.endColor.alpha = distance > radius
-              ? 0
-              : (kind === "rain" ? 0.7 : 0.95) / (distance / radius + 0.1);
-          };
-          weatherSystem = new ParticleSystem({
-            modelMatrix: Matrix4.fromTranslation(v.camera.positionWC),
-            emitter: new SphereEmitter(radius),
-            image:
-              kind === "rain"
-                ? "/weather/circular_particle.png"
-                : "/weather/snowflake_particle.png",
-            emissionRate: kind === "rain" ? 650 : 420,
-            lifetime: Number.MAX_VALUE,
-            minimumParticleLife: kind === "rain" ? 2 : 6,
-            maximumParticleLife: kind === "rain" ? 3.5 : 10,
-            minimumSpeed: 0,
-            maximumSpeed: 0,
-            startScale: kind === "rain" ? 1 : 0.7,
-            endScale: kind === "rain" ? 0.4 : 1.2,
-            startColor: kind === "rain"
-              ? new Color(0.72, 0.84, 1, 0.08)
-              : Color.WHITE.withAlpha(0.05),
-            endColor: kind === "rain"
-              ? new Color(0.72, 0.84, 1, 0.72)
-              : Color.WHITE.withAlpha(0.88),
-            minimumImageSize: kind === "rain"
-              ? new Cartesian2(particleSize * 0.7, particleSize * 1.8)
-              : new Cartesian2(particleSize * 0.55, particleSize * 0.55),
-            maximumImageSize: kind === "rain"
-              ? new Cartesian2(particleSize, particleSize * 2.8)
-              : new Cartesian2(particleSize * 1.8, particleSize * 1.8),
-            updateCallback: updateWeatherParticle,
-          });
-          v.scene.primitives.add(weatherSystem);
-          removeWeatherCameraListener = v.scene.preUpdate.addEventListener(() => {
-            if (weatherSystem)
-              Matrix4.fromTranslation(v.camera.positionWC, weatherSystem.modelMatrix);
-          });
-          let lastRender = 0;
-          const requestWeatherRender = (now: number) => {
-            if (!weatherSystem || v.isDestroyed()) return;
-            weatherFrame = requestAnimationFrame(requestWeatherRender);
-            if (now - lastRender < 32) return;
-            lastRender = now;
-            v.scene.requestRender();
-          };
-          weatherFrame = requestAnimationFrame(requestWeatherRender);
           v.scene.requestRender();
         };
         stopWeather = clearWeather;
@@ -547,6 +473,17 @@ export default function MapView({
             }
           })();
         }
+        let boundaryPolygonsPromise: Promise<ReturnType<typeof parseAdministrativePolygons>> | undefined;
+        const loadBoundaryPolygons = async () => {
+          if (!scene.boundaryUrl) return null;
+          boundaryPolygonsPromise ??= fetch(scene.boundaryUrl, { signal: lifecycle.signal })
+            .then((response) => {
+              if (!response.ok) throw new Error("行政边界数据加载失败");
+              return response.json();
+            })
+            .then(parseAdministrativePolygons);
+          return boundaryPolygonsPromise;
+        };
         const createLayer = async (
           id: string,
           signal: AbortSignal,
@@ -747,14 +684,19 @@ export default function MapView({
               "humidity",
             ].includes(id)
           ) {
-            const fieldBounds: [number, number, number, number] = [
+            const isObservationField = id === "temperature" || id === "rainfall" || id === "humidity";
+            const polygons = isObservationField ? await loadBoundaryPolygons() : null;
+            if (signal.aborted || disposed) throw new Error("加载已取消");
+            const fieldBounds: [number, number, number, number] = polygons
+              ? administrativeBounds(polygons)
+              : [
               lon - 0.58,
               lat - 0.44,
               lon + 0.58,
               lat + 0.44,
             ];
             const raster =
-              id === "temperature" || id === "rainfall" || id === "humidity"
+              isObservationField
                 ? rasterizeObservationField(
                     frame ?? {
                       observations: [],
@@ -786,6 +728,7 @@ export default function MapView({
               );
               pixels.data.set(raster.pixels);
               context.putImageData(pixels, 0, 0);
+              if (polygons) clipRasterToBoundary(rasterCanvas, raster.bounds, polygons);
               source.entities.add({
                 id: `${id}-raster`,
                 rectangle: {
@@ -799,11 +742,15 @@ export default function MapView({
               });
             }
           } else if (id === "wind") {
+            // 演示格点只在中心区有值，视觉风场可插值铺满区划；真实源严格使用原始覆盖范围。
+            const windPolygons = frame?.source === "mock" ? await loadBoundaryPolygons() : null;
+            if (signal.aborted || disposed) throw new Error("加载已取消");
             if (container.current && frame?.gridCells?.length)
               windOverlay = createWindParticleOverlay(
                 container.current,
                 v.scene,
                 frame.gridCells,
+                windPolygons,
               );
           } else if (frame?.gridCells?.length) {
             for (const cell of frame.gridCells) {
@@ -1010,13 +957,27 @@ export default function MapView({
             });
             v.scene.requestRender();
           },
-          showCruisePath: (points) => {
+          showCruisePath: (points, routeHeightM = 500) => {
             const source = new CustomDataSource("cruise-path");
+            const routeAltitude = (lon: number, lat: number, fallback: number) => {
+              const terrain = v.scene.globe.getHeight(Cartographic.fromDegrees(lon, lat));
+              return Math.max(fallback, terrain !== undefined && Number.isFinite(terrain) ? terrain : fallback) + routeHeightM;
+            };
             if (points.length > 1)
               source.entities.add({
                 polyline: {
                   positions: Cartesian3.fromDegreesArrayHeights(
-                    points.flatMap((p) => [p.lon, p.lat, p.height + 30]),
+                    points.flatMap((point, index) => {
+                      const previous = points[index - 1];
+                      if (!previous) return [point.lon, point.lat, routeAltitude(point.lon, point.lat, point.height) + 30];
+                      return Array.from({ length: 12 }, (_, step) => {
+                        const fraction = (step + 1) / 12;
+                        const lon = previous.lon + (point.lon - previous.lon) * fraction;
+                        const lat = previous.lat + (point.lat - previous.lat) * fraction;
+                        const base = previous.height + (point.height - previous.height) * fraction;
+                        return [lon, lat, routeAltitude(lon, lat, base) + 30];
+                      }).flat();
+                    }),
                   ),
                   width: 4,
                   material: Color.CYAN,
@@ -1025,7 +986,7 @@ export default function MapView({
               });
             points.forEach((p, i) =>
               source.entities.add({
-                position: Cartesian3.fromDegrees(p.lon, p.lat, p.height + 40),
+                position: Cartesian3.fromDegrees(p.lon, p.lat, routeAltitude(p.lon, p.lat, p.height) + 40),
                 point: {
                   pixelSize: 15,
                   color: Color.fromCssColorString("#1263c4"),
@@ -1141,16 +1102,19 @@ export default function MapView({
               }
             };
           },
-          startCruise: (points, onProgress, requestedSpeedMps = 130) => {
+          startCruise: (points, onProgress, requestedSpeedMps = 130, requestedRouteHeightM = 500) => {
             stopCruise?.();
             clearDrawing();
+            if (!points.length) throw new Error("漫游至少需要一个点位");
             const speedMps = Number.isFinite(requestedSpeedMps)
               ? Math.max(10, Math.min(1000, requestedSpeedMps))
               : 130;
-            const cameraPosition = v.camera.positionCartographic;
-            const startingPoint = {
-              lon: CesiumMath.toDegrees(cameraPosition.longitude),
-              lat: CesiumMath.toDegrees(cameraPosition.latitude),
+            const routeHeightM = Number.isFinite(requestedRouteHeightM)
+              ? Math.max(0, Math.min(10000, requestedRouteHeightM)) : 500;
+            const startingPoint = points[0];
+            const routeAltitude = (lon: number, lat: number, fallback: number) => {
+              const terrain = v.scene.globe.getHeight(Cartographic.fromDegrees(lon, lat));
+              return Math.max(fallback, terrain !== undefined && Number.isFinite(terrain) ? terrain : fallback) + routeHeightM;
             };
             const headingBetween = (
               from: { lon: number; lat: number },
@@ -1201,20 +1165,15 @@ export default function MapView({
                       : points[index].duration),
                 ),
               });
-            // 节点跳转后直接对准目标站点，并沿用节点保存的相机视角参数。
+            // 默认沿线路朝向下一个节点；仅在显式关联书签时使用书签镜头。
             const focusPoint = (point: (typeof points)[number]) => {
+              const next = points[points.indexOf(point) + 1];
               v.camera.lookAt(
-                Cartesian3.fromDegrees(point.lon, point.lat, point.height),
+                Cartesian3.fromDegrees(point.lon, point.lat, routeAltitude(point.lon, point.lat, point.height)),
                 new HeadingPitchRange(
-                  point.view?.heading ?? 0,
-                  point.view?.pitch ?? CesiumMath.toRadians(point.pitch),
-                  point.view
-                    ? Math.max(
-                        100,
-                        point.view.height /
-                          Math.max(0.1, Math.abs(Math.sin(point.view.pitch))),
-                      )
-                    : point.radius,
+                  point.bookmarkId && point.view ? point.view.heading : next ? headingBetween(point, next, 0) : 0,
+                  point.bookmarkId && point.view ? point.view.pitch : CesiumMath.toRadians(point.pitch),
+                  point.radius,
                 ),
               );
               v.scene.requestRender();
@@ -1230,6 +1189,7 @@ export default function MapView({
               report("stopped");
             };
             stopCruise = stop;
+            focusPoint(points[0]);
             const tick = (now: number) => {
               if (stopped || disposed) return;
               const dt = Math.min(0.1, (now - last) / 1000);
@@ -1260,6 +1220,7 @@ export default function MapView({
                     : 1;
                 const lon = previous.lon + (p.lon - previous.lon) * k,
                   lat = previous.lat + (p.lat - previous.lat) * k;
+                const baseHeight = previous.height + (p.height - previous.height) * k;
                 const heading =
                   phase === "orbit"
                     ? t *
@@ -1271,21 +1232,15 @@ export default function MapView({
                   Cartesian3.fromDegrees(
                     lon,
                     lat,
-                    p.height +
+                    routeAltitude(lon, lat, baseHeight) +
                       (phase === "transition"
                         ? Math.sin(Math.PI * t) * (p.flightHeight ?? 3000)
                         : 0),
                   ),
                   new HeadingPitchRange(
-                    (p.view?.heading ?? routeHeading) + heading,
-                    p.view?.pitch ?? CesiumMath.toRadians(p.pitch),
-                    p.view
-                      ? Math.max(
-                          100,
-                          p.view.height /
-                            Math.max(0.1, Math.abs(Math.sin(p.view.pitch))),
-                        )
-                      : p.radius,
+                    (p.bookmarkId && p.view ? p.view.heading : routeHeading) + heading,
+                    p.bookmarkId && p.view ? p.view.pitch : CesiumMath.toRadians(p.pitch),
+                    p.radius,
                   ),
                 );
                 v.scene.requestRender();

@@ -38,3 +38,29 @@ export function parseAdministrativeBoundary(data: unknown) {
     })));
   });
 }
+
+/** 保留区县多面与孔洞的环结构，供气象色面裁剪；线条绘制仍使用上面的扁平结构。 */
+export function parseAdministrativePolygons(data: unknown) {
+  const parsed = collection.parse(data);
+  if (parsed.crs && !/CRS84|EPSG(?::|::)4326$/i.test(parsed.crs.properties.name))
+    throw new Error("行政边界只支持CRS84或EPSG:4326经纬度坐标");
+  return parsed.features.flatMap((feature) =>
+    feature.geometry.type === "Polygon"
+      ? [feature.geometry.coordinates]
+      : feature.geometry.coordinates,
+  ).map((rings) => rings.map((ring) => ring.map((point) => [point[0], point[1]] as [number, number])));
+}
+export type AdministrativePolygons = ReturnType<typeof parseAdministrativePolygons>;
+
+/** 气象栅格要覆盖整个行政区，不能继续使用固定中心矩形。 */
+export function administrativeBounds(polygons: AdministrativePolygons): [number, number, number, number] {
+  let west = Infinity, south = Infinity, east = -Infinity, north = -Infinity;
+  for (const rings of polygons) for (const ring of rings) for (const [lon, lat] of ring) {
+    west = Math.min(west, lon);
+    south = Math.min(south, lat);
+    east = Math.max(east, lon);
+    north = Math.max(north, lat);
+  }
+  if (!(west < east && south < north)) throw new Error("行政边界范围无效");
+  return [west, south, east, north];
+}

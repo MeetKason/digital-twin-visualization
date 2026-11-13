@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { SettingsSectionIds } from "./management";
 export const SceneSchema = z.object({
   id: z.string().regex(/^[a-z][a-z0-9-]{0,63}$/),
   name: z.string().trim().min(1).max(80),
@@ -21,8 +22,9 @@ export const SceneSchema = z.object({
         .array(
           z.enum(["home", "roam", "station", "weather", "device", "settings"]),
         )
-        .min(2)
+        .min(1)
         .max(6),
+      settingsSections: z.array(z.enum(SettingsSectionIds)).max(SettingsSectionIds.length).optional(),
       theme: z
         .object({
           primary: z.string().regex(/^#[0-9a-fA-F]{6}$/),

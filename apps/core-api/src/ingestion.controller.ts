@@ -136,6 +136,7 @@ export class IngestionController {
     @Body() body: unknown,
   ) {
     const user = await this.p.access(req, id, true);
+    await this.p.requireSettingsSection(user, "stations", id);
     // 来源由服务端地区配置选择，忽略并覆盖客户端请求中的 source。
     const payload = z
       .object({
@@ -179,6 +180,7 @@ export class IngestionController {
     @Body() body: unknown,
   ) {
     const user = await this.p.access(req, id, true);
+    await this.p.requireSettingsSection(user, "stations", id);
     if (user.role !== "admin")
       throw new ForbiddenException("仅管理员可切换数据模式和定时计划");
     await this.p.module(user, id, "ingestion");
@@ -239,6 +241,7 @@ export class IngestionController {
     action: "retry" | "cancel",
   ) {
     const user = await this.p.access(req, id, true);
+    await this.p.requireSettingsSection(user, "stations", id);
     await this.p.module(user, id, "ingestion");
     if (action === "retry") {
       const state = await this.p.ingestion.status(user.tenantId, id);

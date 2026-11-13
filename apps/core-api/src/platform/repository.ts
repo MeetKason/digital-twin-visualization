@@ -4,6 +4,7 @@ import { createHash, randomUUID } from "node:crypto";
 import { ConflictException } from "@nestjs/common";
 import { Pool, type PoolClient } from "pg";
 import type { BusinessData, BusinessPublication } from "@dtv/contracts";
+import type { SettingsSectionId } from "@dtv/contracts";
 export type Role = "admin" | "editor" | "viewer";
 export interface Principal {
   id: string;
@@ -12,6 +13,7 @@ export interface Principal {
   scenes: string[];
   kind: "account" | "demo";
   platformAdmin?: boolean;
+  settingsSections?: SettingsSectionId[];
 }
 export interface Session {
   user: Principal;

@@ -68,6 +68,7 @@ export function createDemoBusiness(scene: SceneConfig): BusinessData {
       saved: true,
       // 参考 Mars3D setCameraViewList：依次飞抵视点并停留，可在界面暂停/继续。
       speedMps: route === 0 ? 180 : 130,
+      routeHeightM: 800,
       points,
     };
   });

@@ -9,7 +9,10 @@ test("演示预置包含可验证的多点路线和站点视角，各次创建�
   expect(data.plans).toHaveLength(2);
   for (const plan of data.plans) {
     expect(plan.points.length).toBeGreaterThanOrEqual(3);
+    expect(plan.routeHeightM).toBe(800);
     expect(() => validatePlan(plan)).not.toThrow();
+    expect(() => validatePlan({ ...plan, routeHeightM: -1 })).toThrow("线路离地高度");
+    expect(() => validatePlan({ ...plan, routeHeightM: 10001 })).toThrow("线路离地高度");
   }
   expect(data.bookmarks).toHaveLength(3);
   expect(data.bookmarks[0].view.heading).toBeCloseTo(Math.PI);

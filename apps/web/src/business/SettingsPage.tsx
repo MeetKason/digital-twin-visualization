@@ -1,6 +1,6 @@
 import { TenantAuthorization } from "./TenantAuthorization";
 import { PluginManagement } from "./PluginPanels";
-import type { ProductModule } from "@dtv/contracts";
+import { SettingsSectionIds, type ProductModule, type SettingsSectionId } from "@dtv/contracts";
 import type { MapFacade } from "@dtv/sdk";
 import type { useExtensions } from "../useExtensions";
 import { ScenarioManager } from "./ScenarioManager";
@@ -44,6 +44,19 @@ const sections = [
   "站点数据",
   "模型管理",
 ];
+const sectionPermissions: Record<string, SettingsSectionId> = {
+  "用户管理": "accounts",
+  "部署服务配置": "deployment",
+  "场景包管理": "scenarios",
+  "租户产品授权": "licensing",
+  "插件管理": "plugins",
+  "账号开通/管理": "accounts",
+  "用户与权限": "accounts",
+  "发布管理": "publications",
+  "操作审计": "audit",
+  "站点数据": "stations",
+  "模型管理": "models",
+};
 export function SettingsPage({
   scene,
   business,
@@ -59,7 +72,7 @@ export function SettingsPage({
   onDataChanged: () => void;
   onSceneApplied: () => Promise<void>;
 }) {
-  const [section, setSection] = useState(sections[0]),
+  const [requestedSection, setSection] = useState(sections[0]),
     [config, setConfig] = useState<unknown>(null),
     [error, setError] = useState(""),
     [modelManagerOpen, setModelManagerOpen] = useState(false);
@@ -73,11 +86,16 @@ export function SettingsPage({
       });
     return () => ctrl.abort();
   }, []);
+  const allowedSections = new Set(scene.ui?.settingsSections ?? SettingsSectionIds);
+  const visibleSections = sections.filter((item) => allowedSections.has(sectionPermissions[item]));
+  const section = visibleSections.includes(requestedSection) ? requestedSection : (visibleSections[0] ?? "");
   const accountSection = ["用户管理", "账号开通/管理", "用户与权限"].includes(
     section,
   );
   const auditSection = section === "操作审计";
   const publicationSection = section === "发布管理";
+  if (!visibleSections.length)
+    return <Alert type="warning" showIcon message="当前账号未获系统管理授权" />;
   return (
     <ConfigProvider
       locale={zhCN}
@@ -98,7 +116,7 @@ export function SettingsPage({
               className="settings-menu"
               mode="inline"
               selectedKeys={[section]}
-              items={sections.map((s) => ({ key: s, label: s }))}
+              items={visibleSections.map((s) => ({ key: s, label: s }))}
               onClick={({ key }) => setSection(key)}
             />
           </div>

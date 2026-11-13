@@ -18,6 +18,8 @@ import {
 import {
   LAYERS,
   MenuIds,
+  SettingsSectionIds,
+  SettingsSectionNames,
   ScenarioPackSchema,
   type ScenarioPack,
   type ScenarioRevision,
@@ -35,6 +37,7 @@ const names: Record<(typeof MenuIds)[number], string> = {
 };
 const defaultUi = () => ({
   menus: [...MenuIds],
+  settingsSections: [...SettingsSectionIds],
   theme: { primary: "#1263c4", navy: "#1c466c" },
   layout: { panelWidth: 264, timelineHeight: 112 },
 });
@@ -52,6 +55,7 @@ export function ScenarioManager({
   const [selected, setSelected] = useState(sceneId);
   const [authorized, setAuthorized] = useState<string[]>([]);
   const [allowed, setAllowed] = useState(false);
+  const [canEditSettingsSections, setCanEditSettingsSections] = useState(false);
   const [record, setRecord] = useState<ScenarioRevision | null>(null);
   const [pack, setPack] = useState<ScenarioPack | null>(null);
   const [dirty, setDirty] = useState(false);
@@ -68,6 +72,7 @@ export function ScenarioManager({
       .then(({ user }) => {
         if (!alive.current) return;
         setAllowed(user?.role === "admin");
+        setCanEditSettingsSections(!!user?.platformAdmin || user?.kind === "demo");
         setAuthorized(user?.scenes ?? []);
       })
       .catch((e: Error) => {
@@ -407,6 +412,19 @@ export function ScenarioManager({
                     : {}),
                 })
               }
+            />
+          </div>
+          <div className="scenario-field">
+            <span>系统管理子菜单上限</span>
+            {!canEditSettingsSections && <span className="muted">仅平台最高管理员可调整</span>}
+            <Checkbox.Group
+              aria-label="系统管理子菜单上限"
+              disabled={!canEditSettingsSections}
+              options={SettingsSectionIds.map((id) => ({ value: id, label: SettingsSectionNames[id] }))}
+              value={ui.settingsSections ?? [...SettingsSectionIds]}
+              onChange={(settingsSections) => editScene({
+                ui: { ...ui, settingsSections: settingsSections as typeof ui.settingsSections },
+              })}
             />
           </div>
           <Collapse

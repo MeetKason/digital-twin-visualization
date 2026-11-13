@@ -80,6 +80,23 @@ test("配置仓库持久化、CAS冲突和租户隔离，并原子记录审计",
 
 import { ScenarioCatalog } from "../apps/core-api/src/platform/scenarios";
 import type { Principal } from "../apps/core-api/src/platform/repository";
+test("场景包子菜单上限发布后立即限制管理员，最高管理员仍可恢复配置", async () => {
+  const root = await mkdtemp(join(tmpdir(), "dtv-scenario-settings-"));
+  try {
+    const catalog = new ScenarioCatalog(new FileRepository(root));
+    const admin: Principal = { id: "tenant-admin", tenantId: "a", role: "admin", scenes: ["xian"], kind: "account" };
+    const pack = valid();
+    const limited = { ...pack, scene: { ...pack.scene, ui: { ...pack.scene.ui, settingsSections: ["audit"] } } };
+    await expect(catalog.saveDraft(admin, "xian", 0, limited)).rejects.toThrow("最高管理员");
+    const elevated = { ...admin, platformAdmin: true };
+    const saved = await catalog.saveDraft(elevated, "xian", 0, limited);
+    await catalog.publish(elevated, "xian", saved.revision);
+    await expect(catalog.read(admin, "xian")).rejects.toThrow("未授权");
+    await expect(catalog.read(elevated, "xian")).resolves.toMatchObject({ revision: 2 });
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
 test("草稿不生效，发布按租户隔离，恢复历史仅创建草稿，新地区需发布且独立授权", async () => {
   const root = await mkdtemp(join(tmpdir(), "dtv-scenario-"));
   try {

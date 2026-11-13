@@ -74,6 +74,8 @@ export interface CruisePlan {
   saved: boolean;
   /** 节点间默认移动速度（米/秒）；旧方案缺省时按130米/秒处理。 */
   speedMps?: number;
+  /** 巡航目标相对地面的抬升高度，旧方案缺省时按 500 米处理。 */
+  routeHeightM?: number;
 }
 export interface DemoUser {
   id: string;
@@ -262,6 +264,7 @@ export function validatePlan(plan: {
   name: string;
   points: CruisePoint[];
   speedMps?: number;
+  routeHeightM?: number;
 }) {
   if (!plan.name.trim() || !plan.points.length)
     throw new Error("方案名称和至少一个点位必填");
@@ -270,6 +273,9 @@ export function validatePlan(plan: {
     (!Number.isFinite(plan.speedMps) || plan.speedMps < 10 || plan.speedMps > 1000)
   )
     throw new Error("漫游速度须在10至1000米/秒之间");
+  if (plan.routeHeightM !== undefined &&
+    (!Number.isFinite(plan.routeHeightM) || plan.routeHeightM < 0 || plan.routeHeightM > 10000))
+    throw new Error("线路离地高度须在0至10000米之间");
   for (const p of plan.points) {
     if (
       p.angle !== undefined &&
@@ -384,6 +390,7 @@ const businessSchema = z.object({
         name: z.string(),
         saved: z.boolean(),
         speedMps: z.number().min(10).max(1000).optional(),
+        routeHeightM: z.number().min(0).max(10000).optional(),
         points: z.array(pointSchema).max(200),
       }),
     )

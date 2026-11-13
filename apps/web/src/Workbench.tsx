@@ -34,7 +34,6 @@ import { useExtensions } from "./useExtensions";
 import { useBusiness } from "./business/useBusiness";
 import {
   ToolsPanel,
-  EnvironmentOverlay,
   type Environment,
 } from "./business/ToolsPanel";
 import { CruisePanel } from "./business/CruisePanel";
@@ -186,17 +185,19 @@ export default function Workbench({ onExit }: { onExit: () => void }) {
             {profile?.kind === "demo" && (
               <span className="demo-badge">隔离演示租户</span>
             )}
-            <UiSelect
-              aria-label="地区场景"
-              value={sceneId}
-              onChange={(e) => void chooseScene(e.target.value)}
-            >
-              {scenes.map((s) => (
-                <option key={s.id} value={s.id}>
-                  {s.name}场景
-                </option>
-              ))}
-            </UiSelect>
+            {scenes.length > 1 && (
+              <UiSelect
+                aria-label="地区场景"
+                value={sceneId}
+                onChange={(e) => void chooseScene(e.target.value)}
+              >
+                {scenes.map((s) => (
+                  <option key={s.id} value={s.id}>
+                    {s.name}场景
+                  </option>
+                ))}
+              </UiSelect>
+            )}
             <time>
               {now.toLocaleDateString("sv-SE", { timeZone: "Asia/Shanghai" })}{" "}
               <b>
@@ -648,7 +649,6 @@ function WorkArea({
           .map((route) => (
             <PluginPage key={route.id} route={route} map={map} />
           ))}
-        <EnvironmentOverlay value={environment} />
         {station && (activeMenu === "home" || activeMenu === "weather") && (
           <StationDetails
             station={station}

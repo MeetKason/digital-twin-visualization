@@ -219,6 +219,7 @@ export interface ManagedAccount {
   role: SessionUser["role"];
   scenes: string[];
   disabled?: boolean;
+  settingsSections?: import("@dtv/contracts").SettingsSectionId[];
 }
 export const accountAdminApi = {
   list: (signal?: AbortSignal) =>
@@ -229,6 +230,7 @@ export const accountAdminApi = {
     role: ManagedAccount["role"];
     scenes: string[];
     password: string;
+    settingsSections?: import("@dtv/contracts").SettingsSectionId[];
   }) => mutation<ManagedAccount>("/admin/accounts", "POST", body),
   update: (id: string, body: Omit<ManagedAccount, "id">) =>
     mutation<ManagedAccount>(

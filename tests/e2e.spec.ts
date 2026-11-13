@@ -1,4 +1,103 @@
 import { test, expect } from "@playwright/test";
+test("系统管理目录仅显示地区与账号交集中的子菜单", async ({ page }) => {
+  await page.route("**/api/scenes", async (route) => {
+    const response = await route.fetch();
+    const scenes = await response.json();
+    await route.fulfill({ response, json: scenes.map((scene: { ui: object }) => ({
+      ...scene, ui: { ...scene.ui, settingsSections: ["audit"] },
+    })) });
+  });
+  await page.goto("/");
+  await page.getByRole("button", { name: "进入演示系统" }).click();
+  await page.locator(".side-navigation").getByRole("button", { name: "系统管理" }).click();
+  await expect(page.locator(".settings-menu")).toContainText("操作审计");
+  await expect(page.locator(".settings-menu")).not.toContainText("场景包管理");
+  await expect(page.locator(".settings-menu .ant-menu-item")).toHaveCount(1);
+});
+test("系统管理授权为空时隐藏主导航入口", async ({ page }) => {
+  await page.route("**/api/scenes", async (route) => {
+    const response = await route.fetch();
+    const scenes = await response.json();
+    await route.fulfill({ response, json: scenes.map((scene: { ui: { menus: string[] } }) => ({
+      ...scene, ui: { ...scene.ui, menus: scene.ui.menus.filter((id) => id !== "settings"), settingsSections: [] },
+    })) });
+  });
+  await page.goto("/");
+  await page.getByRole("button", { name: "进入演示系统" }).click();
+  await expect(page.locator(".side-navigation")).toBeVisible();
+  await expect(page.locator(".side-navigation").getByRole("button", { name: "系统管理" })).toHaveCount(0);
+});
+test("场景包和账号表单可配置系统管理子菜单", async ({ page }) => {
+  await page.goto("/");
+  await page.getByRole("button", { name: "进入演示系统" }).click();
+  await page.locator(".side-navigation").getByRole("button", { name: "系统管理" }).click();
+  await page.getByRole("menuitem", { name: "场景包管理" }).click();
+  await expect(page.getByText("系统管理子菜单上限")).toBeVisible();
+  await expect(page.locator(".scenario-field").filter({ hasText: "系统管理子菜单上限" }).getByRole("checkbox")).toHaveCount(9);
+  await page.getByRole("menuitem", { name: "账号开通/管理" }).click();
+  await page.getByRole("button", { name: "新增登录账号" }).click();
+  await expect(page.locator(".account-create").getByText("系统管理权限", { exact: true })).toBeVisible();
+});
+test("仅一个授权地区时隐藏地区下拉框", async ({ page }) => {
+  await page.route("**/api/scenes", async (route) => {
+    const response = await route.fetch();
+    const scenes = await response.json();
+    await route.fulfill({ response, json: scenes.slice(0, 1) });
+  });
+  await page.goto("/");
+  await page.getByRole("button", { name: "进入演示系统" }).click();
+  await expect(page.locator("header h1")).toContainText("西安市");
+  await expect(page.getByRole("combobox", { name: "地区场景" })).toHaveCount(0);
+});
+
+test("漫游线路高度和点位拖动排序可保存，标题固定", async ({ page }) => {
+  test.setTimeout(90000);
+  await page.goto("/");
+  await page.getByRole("button", { name: "进入演示系统" }).click();
+  await page.locator(".side-navigation").getByRole("button", { name: "路径漫游" }).click();
+  await expect(page.locator(".cruise-point")).toHaveCount(3);
+  const points = page.locator(".cruise-point");
+  const firstName = await points.first().locator("button").first().textContent();
+  await page.getByRole("spinbutton", { name: "漫游线路离地高度（米）" }).fill("900");
+  await points.first().dragTo(points.nth(2));
+  await expect(points.nth(2).locator("button").first()).toContainText(firstName?.trim().replace(/^\d+\s*/, "") ?? "");
+  const heading = page.locator(".cruise-editor > .panel-heading");
+  const initialTop = (await heading.boundingBox())?.y;
+  await page.locator(".cruise-editor > .panel-body").evaluate((element) => { element.scrollTop = element.scrollHeight; });
+  expect((await heading.boundingBox())?.y).toBe(initialTop);
+  await page.getByRole("button", { name: "保存方案", exact: true }).click();
+  await expect(page.locator(".cruise-editor > .panel-heading")).toContainText("已保存");
+  await page.reload();
+  await page.locator(".side-navigation").getByRole("button", { name: "路径漫游" }).click();
+  await expect(page.locator(".cruise-point")).toHaveCount(3);
+  await expect(page.getByRole("spinbutton", { name: "漫游线路离地高度（米）" })).toHaveValue("900");
+  await expect(page.locator(".cruise-point").nth(2).locator("button").first()).toContainText(firstName?.trim().replace(/^\d+\s*/, "") ?? "");
+  await page.getByRole("button", { name: "开始漫游", exact: true }).click();
+  await expect(page.getByRole("button", { name: "暂停漫游" })).toBeVisible();
+  await page.screenshot({ path: "test-results/cruise-follow-view.png" });
+  await page.getByRole("button", { name: "停止漫游" }).click();
+});
+test("雨雪雾后处理在移动视角时保持可用", async ({ page }) => {
+  const errors: string[] = [];
+  page.on("pageerror", (error) => errors.push(error.message));
+  page.on("console", (message) => {
+    if (message.type() === "error" && /shader|webgl|post.?process/i.test(message.text()))
+      errors.push(message.text());
+  });
+  await page.goto("/");
+  await page.getByRole("button", { name: "进入演示系统" }).click();
+  await expect(page.locator(".cesium-widget canvas")).toBeVisible({ timeout: 60000 });
+  await page.getByRole("button", { name: "工具箱", exact: true }).click();
+  for (const [kind, name] of [["雨景模拟", "rain"], ["雪景模拟", "snow"], ["雾效模拟", "fog"]]) {
+    await page.getByRole("button", { name: kind }).click();
+    await page.locator(".cesium-widget canvas").hover();
+    await page.mouse.wheel(0, -300);
+    await page.waitForTimeout(500);
+    await page.screenshot({ path: `test-results/weather-${name}.png` });
+  }
+  await page.getByRole("button", { name: "关闭模拟" }).click();
+  expect(errors).toEqual([]);
+});
 test("登录、地图、图层、透明度、搜索、时次和地区切换", async ({ page }) => {
   const external: string[] = [];
   page.on("request", (r) => {
@@ -144,9 +243,9 @@ test("按菜单：工具书签、漫游方案、点位录入与刷新、专题�
   await page.getByLabel("视角名称").fill("验收镜头");
   await page.getByRole("button", { name: "保存书签" }).click();
   await page.getByRole("button", { name: "雨景模拟" }).click();
-  await expect(page.getByLabel("雨景模拟")).toBeVisible();
+  await expect(page.getByRole("button", { name: "雨景模拟" })).toHaveClass(/active/);
   await page.getByRole("button", { name: "雪景模拟" }).click();
-  await expect(page.getByLabel("雨景模拟")).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "雪景模拟" })).toHaveClass(/active/);
   await page.screenshot({ path: "test-results/menu-tools.png" });
   await page.getByRole("button", { name: "关闭模拟" }).click();
   await page
@@ -700,6 +799,13 @@ test("系统管理显示租户操作审计并支持筛选和导出", async ({ pa
     .click();
   await page.getByRole("menuitem", { name: "操作审计" }).click();
   await expect(page.getByText("auth.login", { exact: true })).toBeVisible();
+  const searchBounds = await page.locator(".audit-search-field").boundingBox();
+  const filterBounds = await page.locator(".audit-result-field").boundingBox();
+  expect(searchBounds && filterBounds).toBeTruthy();
+  expect(filterBounds!.x - (searchBounds!.x + searchBounds!.width)).toBeLessThan(32);
+  expect(Math.abs(filterBounds!.y - searchBounds!.y)).toBeLessThan(5);
+  const refreshBounds = await page.getByRole("button", { name: "刷新", exact: true }).boundingBox();
+  expect(Math.abs((refreshBounds!.y + refreshBounds!.height) - (filterBounds!.y + filterBounds!.height))).toBeLessThan(4);
   await page.getByRole("combobox", { name: "结果筛选" }).click();
   await page.locator(".ant-select-dropdown:visible").getByText("成功", { exact: true }).click();
   await expect(page.getByText("business.write", { exact: true })).toHaveCount(
@@ -713,6 +819,8 @@ test("系统管理显示租户操作审计并支持筛选和导出", async ({ pa
   let csv = "";
   for await (const chunk of stream) csv += chunk.toString();
   expect(csv).toContain("'=HYPERLINK");
+  await page.setViewportSize({ width: 1100, height: 768 });
+  expect(await page.locator(".audit-toolbar").evaluate((element) => element.scrollWidth <= element.clientWidth)).toBe(true);
 });
 
 test("专题与设备使用Ant表格并在窄屏保持表头和滚动区可见", async ({ page }) => {

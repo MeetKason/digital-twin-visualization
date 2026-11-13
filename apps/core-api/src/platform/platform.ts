@@ -41,6 +41,9 @@ import {
   MOCK_LAYER_PRODUCTS,
   moduleForMenu,
   MenuIds,
+  SettingsSectionIds,
+  effectiveSettingsSections,
+  type SettingsSectionId,
   type ProductModule,
   type SceneConfig,
   type BusinessData,
@@ -56,6 +59,7 @@ const accountSchema = z.array(
       .max(50),
     passwordHash: z.string().regex(/^scrypt:[a-f0-9]{32}:[a-f0-9]{128}$/),
     disabled: z.boolean().optional(),
+    settingsSections: z.array(z.enum(SettingsSectionIds)).max(SettingsSectionIds.length).optional(),
   }),
 );
 export type Request = IncomingMessage & { ip?: string };
@@ -262,6 +266,17 @@ export class Platform {
     if (!this.isPlatformAdmin(user))
       throw new ForbiddenException("仅平台管理员可管理租户产品授权");
   }
+  /** 每次读取生效场景配置，确保场景包发布后授权立即收敛。 */
+  async requireSettingsSection(user: Principal, section: SettingsSectionId, sceneId?: string) {
+    if (this.isPlatformAdmin(user) || user.kind === "demo") return;
+    const scenes = sceneId
+      ? [await this.scenarios.active(user.tenantId, sceneId)]
+      : await this.scenarios.list(user);
+    if (!scenes.some((scene) => effectiveSettingsSections(
+      scene.ui?.settingsSections, user.settingsSections, user.role, false,
+    ).includes(section)))
+      throw new ForbiddenException("未授权使用该系统管理功能");
+  }
   async authorizeLicenseAdmin(user: Principal) {
     try {
       this.requirePlatformAdmin(user);
@@ -325,8 +340,15 @@ export class Platform {
         ui: {
           menus: (s.ui?.menus ?? [...MenuIds]).filter(
             (menu) =>
-              !moduleForMenu[menu] ||
-              status.modules.includes(moduleForMenu[menu]!),
+              (menu !== "settings" || effectiveSettingsSections(
+                s.ui?.settingsSections, user.settingsSections, user.role,
+                this.isPlatformAdmin(user) || user.kind === "demo",
+              ).length > 0) &&
+              (!moduleForMenu[menu] || status.modules.includes(moduleForMenu[menu]!)),
+          ),
+          settingsSections: effectiveSettingsSections(
+            s.ui?.settingsSections, user.settingsSections, user.role,
+            this.isPlatformAdmin(user) || user.kind === "demo",
           ),
           theme: s.ui?.theme ?? { primary: "#1263c4", navy: "#1c466c" },
           layout: s.ui?.layout ?? { panelWidth: 264, timelineHeight: 112 },
@@ -335,7 +357,7 @@ export class Platform {
   }
   private async checkAccountGrant(
     user: Principal,
-    fields: { tenantId: string; scenes: string[]; disabled?: boolean },
+    fields: { tenantId: string; scenes: string[]; role: "admin" | "editor" | "viewer"; settingsSections?: SettingsSectionId[]; disabled?: boolean },
     editingId?: string,
   ) {
     if (fields.tenantId.startsWith("demo-"))
@@ -346,6 +368,10 @@ export class Platform {
         fields.scenes.some((id) => !user.scenes.includes(id)))
     )
       throw new ForbiddenException("不能跨租户或超出自身地区分配账号");
+    // 受限管理员不能通过创建或修改其他管理员来扩大自己的授权。
+    if (!this.isPlatformAdmin(user) && user.settingsSections && fields.role === "admin" &&
+      (fields.settingsSections ?? SettingsSectionIds).some((id) => !user.settingsSections!.includes(id)))
+      throw new ForbiddenException("不能分配超出自身范围的系统管理权限");
     if (fields.disabled) return;
     const grant = await this.licensing.status(fields.tenantId);
     // 平台管理员可先开通租户管理员，用于许可证尚未导入的新租户；业务接口仍拒绝无证访问。
@@ -439,7 +465,8 @@ export class Platform {
     }
   }
   private requireAccountAdmin(user: Principal) {
-    if (user.kind !== "account" || user.role !== "admin")
+    if (user.kind !== "account" || user.role !== "admin" ||
+      (!this.isPlatformAdmin(user) && user.settingsSections && !user.settingsSections.includes("accounts")))
       throw new ForbiddenException("仅真实管理员可管理登录账号");
   }
   listAccounts(user: Principal) {
@@ -448,12 +475,13 @@ export class Platform {
       throw new ServiceUnavailableException("未配置可写的 AUTH_USERS_FILE");
     return this.accounts
       .filter((a) => this.isPlatformAdmin(user) || a.tenantId === user.tenantId)
-      .map(({ id, tenantId, role, scenes, disabled }) => ({
+      .map(({ id, tenantId, role, scenes, disabled, settingsSections }) => ({
         id,
         tenantId,
         role,
         scenes,
         disabled,
+        settingsSections,
       }));
   }
   /** 只有真实管理员能创建账号；校验角色、场景后持久化带盐密码摘要。 */
@@ -474,6 +502,7 @@ export class Platform {
           .min(1)
           .max(50),
         password: z.string().min(12).max(128),
+        settingsSections: z.array(z.enum(SettingsSectionIds)).max(SettingsSectionIds.length).optional(),
       })
       .safeParse(input);
     if (!parsed.success)
@@ -507,6 +536,7 @@ export class Platform {
         role: account.role,
         scenes: account.scenes,
         disabled: account.disabled,
+        settingsSections: account.settingsSections,
       };
     });
   }
@@ -522,6 +552,7 @@ export class Platform {
           .min(1)
           .max(50),
         disabled: z.boolean(),
+        settingsSections: z.array(z.enum(SettingsSectionIds)).max(SettingsSectionIds.length).optional(),
       })
       .safeParse(input);
     if (!parsed.success) throw new BadRequestException("账号信息格式错误");
@@ -560,6 +591,7 @@ export class Platform {
         role: updated.role,
         scenes: updated.scenes,
         disabled: updated.disabled,
+        settingsSections: updated.settingsSections,
       };
     });
   }
@@ -756,6 +788,7 @@ export class Platform {
     revision: number,
     message: string,
   ) {
+    await this.requireSettingsSection(user, "publications", scene);
     if (user.role !== "admin")
       throw new ForbiddenException("仅管理员可发布业务修订");
     const current = await this.repo.readBusiness(user.tenantId, scene);
@@ -774,6 +807,7 @@ export class Platform {
     };
   }
   async businessPublications(user: Principal, scene: string) {
+    await this.requireSettingsSection(user, "publications", scene);
     if (user.role !== "admin")
       throw new ForbiddenException("仅管理员可查看发布历史");
     const items = await this.repo.publications(user.tenantId, scene);
@@ -791,6 +825,7 @@ export class Platform {
     decision: "approve" | "reject",
     message: string,
   ) {
+    await this.requireSettingsSection(user, "publications", scene);
     if (user.role !== "admin")
       throw new ForbiddenException("仅管理员可审批发布版本");
     const result = await this.repo.reviewPublication(
@@ -813,6 +848,7 @@ export class Platform {
     revision: number,
     trafficPercent: number,
   ) {
+    await this.requireSettingsSection(user, "publications", scene);
     if (user.role !== "admin")
       throw new ForbiddenException("仅管理员可激活发布版本");
     const result = await this.repo.activatePublication(
@@ -833,6 +869,7 @@ export class Platform {
     targetRevision: number,
     expectedRevision: number,
   ) {
+    await this.requireSettingsSection(user, "publications", scene);
     if (user.role !== "admin")
       throw new ForbiddenException("仅管理员可回滚业务版本");
     return this.locked(user, scene, async () => {

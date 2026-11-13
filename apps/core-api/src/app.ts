@@ -446,6 +446,7 @@ class ApiController {
   }
   @Get("audit") async audit(@Req() req: Request) {
     const user = await this.p.current(req);
+    await this.p.requireSettingsSection(user, "audit");
     if (user.role !== "admin")
       throw new ForbiddenException("仅管理员可查看审计");
     return this.p.repo.audit(user.tenantId);
@@ -550,14 +551,18 @@ class ApiController {
     return { allowed: true };
   }
   @Get("admin/accounts") async accounts(@Req() req: Request) {
-    return this.p.listAccounts(await this.p.current(req));
+    const user = await this.p.current(req);
+    await this.p.requireSettingsSection(user, "accounts");
+    return this.p.listAccounts(user);
   }
   @Post("admin/accounts") async createAccount(
     @Req() req: Request,
     @Body() body: unknown,
   ) {
     writeBoundary(req);
-    return this.p.createAccount(await this.p.current(req), body);
+    const user = await this.p.current(req);
+    await this.p.requireSettingsSection(user, "accounts");
+    return this.p.createAccount(user, body);
   }
   @Put("admin/accounts/:id") async updateAccount(
     @Req() req: Request,
@@ -565,7 +570,9 @@ class ApiController {
     @Body() body: unknown,
   ) {
     writeBoundary(req);
-    return this.p.updateAccount(await this.p.current(req), id, body);
+    const user = await this.p.current(req);
+    await this.p.requireSettingsSection(user, "accounts");
+    return this.p.updateAccount(user, id, body);
   }
   @Put("admin/accounts/:id/password") async resetAccountPassword(
     @Req() req: Request,
@@ -573,7 +580,9 @@ class ApiController {
     @Body() body: unknown,
   ) {
     writeBoundary(req);
-    return this.p.resetAccountPassword(await this.p.current(req), id, body);
+    const user = await this.p.current(req);
+    await this.p.requireSettingsSection(user, "accounts");
+    return this.p.resetAccountPassword(user, id, body);
   }
   @Get("layers/:id/times") async times(
     @Req() req: Request,

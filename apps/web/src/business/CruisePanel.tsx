@@ -20,12 +20,18 @@ export function CruisePanel({
     [pointId, setPointId] = useState(""),
     [picker, setPicker] = useState(false),
     [mapPicking, setMapPicking] = useState(false),
+    [dragPointId, setDragPointId] = useState(""),
     [error, setError] = useState(""),
     [progress, setProgress] = useState<CruiseProgress | null>(null);
   const controller = useRef<CruiseController | null>(null),
     cancelPick = useRef<(() => void) | null>(null);
   const selectedRef = useRef(selected);
   selectedRef.current = selected;
+  useEffect(() => {
+    // 服务端方案异步到达后选中首个有效方案，避免列表已显示而编辑区仍为空。
+    if (data.plans.length && !data.plans.some((item) => item.id === selected))
+      setSelected(data.plans[0].id);
+  }, [data.plans, selected]);
   function cancelSelection() {
     // 结束地图拾取并清理回调，避免面板关闭后残留一次性地图事件。
     cancelPick.current?.();
@@ -38,7 +44,7 @@ export function CruisePanel({
   }, [selected]);
   const plan = data.plans.find((p) => p.id === selected),
     point = plan?.points.find((p) => p.id === pointId) ?? plan?.points[0];
-  useEffect(() => map?.showCruisePath?.(plan?.points ?? []), [map, plan]);
+  useEffect(() => map?.showCruisePath?.(plan?.points ?? [], plan?.routeHeightM ?? 500), [map, plan]);
   const running = progress?.state === "playing" || progress?.state === "paused";
   useEffect(
     () => () => {
@@ -138,10 +144,11 @@ export function CruisePanel({
       controller.current = map.startCruise(
         plan.points.map((p) => ({
           ...p,
-          view: data.bookmarks.find((b) => b.id === p.bookmarkId)?.view,
+          view: p.bookmarkId ? data.bookmarks.find((b) => b.id === p.bookmarkId)?.view : undefined,
         })),
         setProgress,
         plan.speedMps ?? 130,
+        plan.routeHeightM ?? 500,
       );
       setError("");
     } catch (e) {
@@ -171,7 +178,7 @@ export function CruisePanel({
                 ...old,
                 plans: [
                   ...old.plans,
-                  { id, name: "新建漫游方案", points: [], saved: false, speedMps: 130 },
+                  { id, name: "新建漫游方案", points: [], saved: false, speedMps: 130, routeHeightM: 500 },
                 ],
               }));
               if (!saved) {
@@ -282,12 +289,49 @@ export function CruisePanel({
                     }}
                   />
                 </label>
+                <label className="cruise-speed-control">
+                  线路离地高度 (m)
+                  <InputNumber
+                    aria-label="漫游线路离地高度（米）"
+                    min={0}
+                    max={10000}
+                    step={100}
+                    value={plan.routeHeightM ?? 500}
+                    onChange={(value) => {
+                      if (value !== null)
+                        edit((old) => ({ ...old, routeHeightM: value }));
+                    }}
+                  />
+                </label>
                 <h3>点位序列</h3>
                 {plan.points.map((p, i) => (
                   <div
                     key={p.id}
-                    className={`cruise-point ${point?.id === p.id ? "active" : ""}`}
+                    className={`cruise-point ${point?.id === p.id ? "active" : ""} ${dragPointId === p.id ? "dragging" : ""}`}
+                    draggable={!running}
+                    title="拖动调整点位顺序，也可使用上下按钮"
+                    onDragStart={(event) => {
+                      setDragPointId(p.id);
+                      event.dataTransfer.effectAllowed = "move";
+                      event.dataTransfer.setData("text/plain", p.id);
+                    }}
+                    onDragOver={(event) => {
+                      if (!running && dragPointId && dragPointId !== p.id) {
+                        event.preventDefault();
+                        event.dataTransfer.dropEffect = "move";
+                      }
+                    }}
+                    onDrop={(event) => {
+                      event.preventDefault();
+                      const fromId = event.dataTransfer.getData("text/plain");
+                      const from = plan.points.findIndex((item) => item.id === fromId);
+                      if (!running && from >= 0 && from !== i)
+                        edit((old) => ({ ...old, points: movePoint(old.points, from, i) }));
+                      setDragPointId("");
+                    }}
+                    onDragEnd={() => setDragPointId("")}
                   >
+                    <span className="cruise-drag-handle" aria-hidden="true">⋮⋮</span>
                     <UiButton
                       onClick={() => {
                         setPointId(p.id);

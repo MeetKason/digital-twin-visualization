@@ -4,7 +4,6 @@ import {
   Button,
   Input,
   Select,
-  Space,
   Table,
   Tag,
   type TableColumnsType,
@@ -137,7 +136,7 @@ export function AuditLogPage() {
         记录由服务端按当前登录租户提供，只读展示最近 500
         条。演示账号只能查看自己的隔离演示记录。
       </p>
-      <Space className="audit-toolbar" wrap align="end">
+      <div className="audit-toolbar">
         <label className="audit-search-field">
           <span>搜索操作人、地区或操作</span>
           <Input
@@ -162,7 +161,7 @@ export function AuditLogPage() {
         <Button onClick={exportCsv} disabled={filtered.length === 0}>
           导出 CSV
         </Button>
-      </Space>
+      </div>
       {error && (
         <Alert
           type="error"

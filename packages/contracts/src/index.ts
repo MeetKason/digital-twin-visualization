@@ -432,6 +432,7 @@ export function mockForecastMetadata(validTime: string) {
 }
 
 export * from "./scenario";
+export * from "./management";
 
 /** 产品与展示图层共用一份对应关系，服务端查询和采集入口执行相同白名单。 */
 export function layerForProduct(productId: string) {
