@@ -63,7 +63,7 @@ export interface RuntimeConfig {
     style?: string;
     format?: string;
     tileMatrixSetID?: string;
-    defaultLayer?: "img_w" | "vec_w" | "ter_w";
+    defaultLayer?: "img_c" | "img_w" | "vec_w" | "ter_w";
   };
   terrainUrl: string | null;
   notice: string;
