@@ -280,6 +280,10 @@ function WorkArea({
     [playing, setPlaying] = useState(false),
     [station, setStation] = useState<Station | null>(null),
     [activeMenu, setActiveMenu] = useState<string>("home");
+  const [cruiseImmersive, setCruiseImmersive] = useState(false);
+  const handleCruiseImmersive = useCallback((immersive: boolean) => {
+    setCruiseImmersive(immersive);
+  }, []);
   const allowedMenus = scene.ui?.menus ?? MenuIds;
   const navigate = (id: string) => {
     if ((allowedMenus as readonly string[]).includes(id)) setActiveMenu(id);
@@ -499,7 +503,7 @@ function WorkArea({
     setIndex(i);
   };
   return (
-    <div className="workspace">
+    <div className={cruiseImmersive ? "workspace cruise-immersive" : "workspace"}>
       <nav className="side-navigation" aria-label="主导航">
         {navigation
           .filter(([id]) => allowedMenus.includes(id))
@@ -657,7 +661,9 @@ function WorkArea({
             onClose={() => setStation(null)}
           />
         )}
-        {activeMenu === "roam" && <CruisePanel business={business} map={map} />}
+        {activeMenu === "roam" && (
+          <CruisePanel business={business} map={map} onImmersiveChange={handleCruiseImmersive} />
+        )}
         {activeMenu === "station" && (
           <StationPage
             business={business}

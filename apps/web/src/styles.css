@@ -360,6 +360,13 @@ button.primary {
   padding-top: 12px;
   padding-right: 8px;
 }
+.workspace.cruise-immersive {
+  gap: 0;
+  padding-right: 0;
+}
+.workspace.cruise-immersive .side-navigation {
+  display: none;
+}
 .side-navigation {
   width: 82px;
   flex-shrink: 0;

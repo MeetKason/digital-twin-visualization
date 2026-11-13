@@ -74,8 +74,16 @@ test("漫游线路高度和点位拖动排序可保存，标题固定", async ({
   await expect(page.locator(".cruise-point").nth(2).locator("button").first()).toContainText(firstName?.trim().replace(/^\d+\s*/, "") ?? "");
   await page.getByRole("button", { name: "开始漫游", exact: true }).click();
   await expect(page.getByRole("button", { name: "暂停漫游" })).toBeVisible();
+  await expect(page.locator(".side-navigation")).toBeHidden();
+  await expect(page.locator(".cruise-editor")).toBeHidden();
+  await expect(page.locator(".cruise-library")).toBeHidden();
+  await expect(page.locator(".cruise-playback")).toBeVisible();
+  await page.getByRole("button", { name: "隐藏线路", exact: true }).click();
+  await expect(page.getByRole("button", { name: "显示线路", exact: true })).toBeVisible();
   await page.screenshot({ path: "test-results/cruise-follow-view.png" });
   await page.getByRole("button", { name: "停止漫游" }).click();
+  await expect(page.locator(".side-navigation")).toBeVisible();
+  await expect(page.getByRole("button", { name: "显示线路", exact: true })).toBeVisible();
 });
 test("雨雪雾后处理在移动视角时保持可用", async ({ page }) => {
   const errors: string[] = [];

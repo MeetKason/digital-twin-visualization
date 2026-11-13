@@ -11,9 +11,11 @@ import { createId } from "../id";
 export function CruisePanel({
   business,
   map,
+  onImmersiveChange,
 }: {
   business: Business;
   map: MapFacade | null;
+  onImmersiveChange?: (immersive: boolean) => void;
 }) {
   const { data, update } = business;
   const [selected, setSelected] = useState(data.plans[0]?.id ?? ""),
@@ -22,7 +24,8 @@ export function CruisePanel({
     [mapPicking, setMapPicking] = useState(false),
     [dragPointId, setDragPointId] = useState(""),
     [error, setError] = useState(""),
-    [progress, setProgress] = useState<CruiseProgress | null>(null);
+    [progress, setProgress] = useState<CruiseProgress | null>(null),
+    [routeVisible, setRouteVisible] = useState(true);
   const controller = useRef<CruiseController | null>(null),
     cancelPick = useRef<(() => void) | null>(null);
   const selectedRef = useRef(selected);
@@ -44,8 +47,15 @@ export function CruisePanel({
   }, [selected]);
   const plan = data.plans.find((p) => p.id === selected),
     point = plan?.points.find((p) => p.id === pointId) ?? plan?.points[0];
-  useEffect(() => map?.showCruisePath?.(plan?.points ?? [], plan?.routeHeightM ?? 500), [map, plan]);
+  useEffect(
+    () => map?.showCruisePath?.(routeVisible ? (plan?.points ?? []) : [], plan?.routeHeightM ?? 500),
+    [map, plan, routeVisible],
+  );
   const running = progress?.state === "playing" || progress?.state === "paused";
+  useEffect(() => {
+    onImmersiveChange?.(running);
+    return () => onImmersiveChange?.(false);
+  }, [onImmersiveChange, running]);
   useEffect(
     () => () => {
       controller.current?.stop();
@@ -157,7 +167,7 @@ export function CruisePanel({
   }
   return (
     <>
-      <section className="cruise-library panel">
+      <section className="cruise-library panel" hidden={running}>
         <div className="panel-heading">
           <strong>漫游方案</strong>
           <span>{data.plans.length} 个</span>
@@ -220,7 +230,7 @@ export function CruisePanel({
           </p>
         </div>
       </section>
-      <section className="cruise-editor panel">
+      <section className="cruise-editor panel" hidden={running}>
         <div className="panel-heading">
           <strong>漫游方案</strong>
           <span>
@@ -303,6 +313,12 @@ export function CruisePanel({
                     }}
                   />
                 </label>
+                <UiButton
+                  aria-pressed={routeVisible}
+                  onClick={() => setRouteVisible((visible) => !visible)}
+                >
+                  {routeVisible ? "隐藏线路" : "显示线路"}
+                </UiButton>
                 <h3>点位序列</h3>
                 {plan.points.map((p, i) => (
                   <div
@@ -646,6 +662,14 @@ export function CruisePanel({
             </UiButton>
             <UiButton onClick={() => controller.current?.stop()}>停止漫游</UiButton>
           </>
+        )}
+        {running && (
+          <UiButton
+            aria-pressed={routeVisible}
+            onClick={() => setRouteVisible((visible) => !visible)}
+          >
+            {routeVisible ? "隐藏线路" : "显示线路"}
+          </UiButton>
         )}
         <UiButton
           aria-label="下一巡航点"

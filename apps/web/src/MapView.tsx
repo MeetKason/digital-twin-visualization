@@ -19,6 +19,7 @@ import {
   Cartographic,
   Math as CesiumMath,
   HeadingPitchRange,
+  HorizontalOrigin,
   Matrix4,
   PolygonHierarchy,
   Transforms,
@@ -1427,6 +1428,11 @@ export default function MapView({
                   font: "16px sans-serif",
                   fillColor: Color.WHITE,
                   showBackground: true,
+                  backgroundColor: Color.fromCssColorString("#163d61").withAlpha(0.9),
+                  horizontalOrigin: HorizontalOrigin.LEFT,
+                  verticalOrigin: VerticalOrigin.CENTER,
+                  pixelOffset: new Cartesian2(18, 0),
+                  disableDepthTestDistance: Number.POSITIVE_INFINITY,
                 },
               });
               drawing.onUpdate([...pts], false);
