@@ -19,6 +19,7 @@ export function CruisePanel({
   const [selected, setSelected] = useState(data.plans[0]?.id ?? ""),
     [pointId, setPointId] = useState(""),
     [picker, setPicker] = useState(false),
+    [mapPicking, setMapPicking] = useState(false),
     [models, setModels] = useState(false),
     [error, setError] = useState(""),
     [progress, setProgress] = useState<CruiseProgress | null>(null);
@@ -30,6 +31,7 @@ export function CruisePanel({
     // 结束地图拾取并清理回调，避免面板关闭后残留一次性地图事件。
     cancelPick.current?.();
     cancelPick.current = null;
+    setMapPicking(false);
     setPicker(false);
   }
   useEffect(() => {
@@ -156,23 +158,38 @@ export function CruisePanel({
         <div className="panel-body">
           <UiButton
             className="primary wide"
-            onClick={() => {
+            disabled={!business.canWrite}
+            onClick={async () => {
+              if (!business.canWrite) {
+                setError(business.error || "服务端资料仍在加载，请稍后再新建方案");
+                return;
+              }
               cancelSelection();
               controller.current?.stop();
               const id = crypto.randomUUID();
-              update((old) => ({
+              const saved = await update((old) => ({
                 ...old,
                 plans: [
                   ...old.plans,
                   { id, name: "新建漫游方案", points: [], saved: false },
                 ],
               }));
+              if (!saved) {
+                setError(business.error || "新建方案未保存，请检查服务端资料状态后重试");
+                return;
+              }
               setSelected(id);
               setProgress(null);
+              setError("");
             }}
           >
             新建方案
           </UiButton>
+          {!business.canWrite && (
+            <p role="status" className="muted">
+              {business.error || business.status}
+            </p>
+          )}
           {data.plans.map((p) => (
             <UiButton
               key={p.id}
@@ -309,11 +326,23 @@ export function CruisePanel({
                 ))}
                 <div className="tool-grid">
                   <UiButton
+                    className={mapPicking ? "primary" : ""}
                     onClick={() => {
+                      if (mapPicking) {
+                        cancelSelection();
+                        setError("已取消地图选点");
+                        return;
+                      }
                       cancelPick.current?.();
+                      if (!map?.pickCoordinate) {
+                        setError("地图尚未就绪，暂时无法选点");
+                        return;
+                      }
                       setError("请在地图单击选择巡航点");
                       cancelPick.current =
-                        map?.pickCoordinate?.((lon, lat, height) => {
+                        map.pickCoordinate((lon, lat, height) => {
+                          cancelPick.current = null;
+                          setMapPicking(false);
                           if (selectedRef.current !== plan.id) return;
                           add(
                             `地图点 ${plan.points.length + 1}`,
@@ -322,10 +351,11 @@ export function CruisePanel({
                             height,
                           );
                           setError("");
-                        }) ?? null;
+                        });
+                      setMapPicking(true);
                     }}
                   >
-                    地图选点
+                    {mapPicking ? "取消选点" : "地图选点"}
                   </UiButton>
                   <UiButton onClick={() => setPicker(true)}>从站点添加</UiButton>
                 </div>
@@ -507,9 +537,9 @@ export function CruisePanel({
           ) : (
             <p className="empty-state">选择或新建漫游方案</p>
           )}
-          {error && (
+          {(error || business.error) && (
             <p role="status" className="error-text">
-              {error}
+              {error || business.error}
             </p>
           )}
         </div>

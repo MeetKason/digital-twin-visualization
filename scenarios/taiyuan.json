@@ -7,5 +7,6 @@
   "height": 145000,
   "modules": ["station", "weather"],
   "revision": "demo-1",
-  "source": "mock"
+  "source": "mock",
+  "boundaryUrl": "/geojson/140100.geojson"
 }

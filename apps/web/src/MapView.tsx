@@ -116,6 +116,7 @@ export default function MapView({
     } | null = null;
     let pickOnce: ((lon: number, lat: number, height: number) => void) | null =
       null;
+    let restorePickCursor: (() => void) | null = null;
     let stopCruise: (() => void) | null = null;
     let drawingSource: CustomDataSource | undefined;
     // Cesium 与本地运行配置异步初始化；未完成前卸载时不再创建浏览器资源。
@@ -159,26 +160,63 @@ export default function MapView({
             }
           }),
         );
+        let cameraTouched = false;
+        const markCameraTouched = () => { cameraTouched = true; };
+        v.scene.canvas.addEventListener("pointerdown", markCameraTouched, true);
+        v.scene.canvas.addEventListener("wheel", markCameraTouched, true);
+        removeCameraListeners.push(() => {
+          v.scene.canvas.removeEventListener("pointerdown", markCameraTouched, true);
+          v.scene.canvas.removeEventListener("wheel", markCameraTouched, true);
+        });
         v.scene.globe.baseColor = Color.fromCssColorString("#d9e6dd");
         v.scene.backgroundColor = Color.fromCssColorString("#d9e5ed");
         v.scene.globe.enableLighting = true;
         v.scene.verticalExaggeration = 1.2;
         v.scene.verticalExaggerationRelativeHeight = 0;
-        const home = () =>
-          v.camera.flyTo({
-            // 默认采用参考图的区域级近垂直俯视构图，完整呈现行政边界和周边地形。
-            destination: Cartesian3.fromDegrees(
-              ...scene.center,
-              scene.height,
-            ),
-            orientation: {
-              heading: 0,
-              pitch: CesiumMath.toRadians(-75),
-              roll: 0,
-            },
+        const home = async () => {
+          const fallback = () => v.camera.flyTo({
+            // 缺少边界资源时仍使用配置中心，并保持真正的垂直俯视。
+            destination: Cartesian3.fromDegrees(...scene.center, scene.height),
+            orientation: { heading: 0, pitch: CesiumMath.toRadians(-90), roll: 0 },
             duration: 0.7,
           });
-        home();
+          if (!scene.boundaryUrl) {
+            fallback();
+            return;
+          }
+          try {
+            // 以行政边界范围计算首屏相机框，避免固定中心点和倾斜角造成边界偏移或裁切。
+            const response = await fetch(scene.boundaryUrl, { signal: lifecycle.signal });
+            if (!response.ok) throw new Error("场景边界读取失败");
+            const boundaries = parseAdministrativeBoundary(await response.json());
+            const coordinates = boundaries.flatMap((boundary) => boundary.coordinates);
+            let west = 180, east = -180, south = 90, north = -90;
+            for (let index = 0; index < coordinates.length; index += 2) {
+              west = Math.min(west, coordinates[index]);
+              east = Math.max(east, coordinates[index]);
+              south = Math.min(south, coordinates[index + 1]);
+              north = Math.max(north, coordinates[index + 1]);
+            }
+            if (west >= east || south >= north) throw new Error("场景边界范围无效");
+            if (disposed || cameraTouched || lifecycle.signal.aborted) return;
+            const longitudePadding = (east - west) * 0.35;
+            const latitudePadding = (north - south) * 0.35;
+            v.camera.flyTo({
+              destination: Rectangle.fromDegrees(
+                west - longitudePadding,
+                south - latitudePadding,
+                east + longitudePadding,
+                north + latitudePadding,
+              ),
+              orientation: { heading: 0, pitch: CesiumMath.toRadians(-90), roll: 0 },
+              duration: 0.8,
+            });
+          } catch {
+            // 场景资源不可用时回退到配置视角；不覆盖用户已开始的地图操作。
+            if (!disposed && !cameraTouched && !lifecycle.signal.aborted) fallback();
+          }
+        };
+        void home();
         if (config.basemap) {
           const b = config.basemap;
           if (b.type === "tianditu") {
@@ -736,6 +774,8 @@ export default function MapView({
           if (v.isDestroyed()) return;
           drawing = null;
           pickOnce = null;
+          restorePickCursor?.();
+          restorePickCursor = null;
           drawingSource?.entities.removeAll();
           v.scene.requestRender();
         };
@@ -857,6 +897,12 @@ export default function MapView({
             stopCruise?.();
             clearDrawing();
             pickOnce = callback;
+            const canvas = v.scene.canvas;
+            const previousCursor = canvas.style.cursor;
+            canvas.style.cursor = "crosshair";
+            restorePickCursor = () => {
+              canvas.style.cursor = previousCursor;
+            };
             return clearDrawing;
           },
           placeModel: (url, lon, lat, height, scale, heading) => {
@@ -1054,7 +1100,9 @@ export default function MapView({
         handler.setInputAction((click: { position: Cartesian2 }) => {
           if (drawing || pickOnce) {
             const ray = v.camera.getPickRay(click.position);
-            const world = ray ? v.scene.globe.pick(ray, v.scene) : undefined;
+            // 优先拾取实际地形；地形瓦片尚未加载或服务不可用时回退到椭球，保证仍可添加坐标点。
+            const world = (ray ? v.scene.globe.pick(ray, v.scene) : undefined)
+              ?? v.camera.pickEllipsoid(click.position, v.scene.globe.ellipsoid);
             if (!world) return;
             const c = Cartographic.fromCartesian(world);
             const lon = CesiumMath.toDegrees(c.longitude),
@@ -1062,6 +1110,8 @@ export default function MapView({
             if (pickOnce) {
               const callback = pickOnce;
               pickOnce = null;
+              restorePickCursor?.();
+              restorePickCursor = null;
               callback(lon, lat, c.height);
               return;
             }
@@ -1191,10 +1241,6 @@ export default function MapView({
           }
         />
       )}
-      <div className="map-coordinates">
-        EPSG:4326 · {scene.center[0].toFixed(4)}°E，{scene.center[1].toFixed(4)}
-        °N · {scene.boundaryUrl ? `${scene.name}行政区划` : "示例范围"}
-      </div>
     </>
   );
 }

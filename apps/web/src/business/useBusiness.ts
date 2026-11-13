@@ -23,6 +23,13 @@ export function useBusiness(sceneId: string) {
   // 每次切换地区都重新拉取该会话授权的服务端修订，并取消旧请求。
   useEffect(() => {
     alive.current = true;
+    // 切换地区时先锁住写入并清空旧修订，避免加载新资料期间把旧地区数据写到新地区。
+    ref.current = null;
+    confirmed.current = null;
+    blocked.current = false;
+    setData(empty());
+    setError("");
+    setStatus("正在加载服务端资料");
     const ctrl = new AbortController();
     void businessApi
       .get(sceneId, ctrl.signal)
@@ -157,6 +164,7 @@ export function useBusiness(sceneId: string) {
     legacy,
     migrateLocal,
     sceneId,
+    canWrite: ref.current !== null && !blocked.current,
   };
 }
 export type Business = ReturnType<typeof useBusiness>;
