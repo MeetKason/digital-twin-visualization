@@ -544,15 +544,19 @@ function WorkArea({
               onStation={pickStation}
             />
           </Suspense>
-        ) : (
+        ) : loadState === "error" ? (
           <div
-            role={loadState === "error" ? "alert" : "status"}
+            role="alert"
             className="loading-screen"
           >
-            {loadState === "error"
-              ? `数据加载失败：${loadError}`
-              : "正在读取场景图层…"}
+            数据加载失败：{loadError}
           </div>
+        ) : (
+          <MapLoadingPreview
+            scene={scene}
+            stations={managedStations}
+            status="正在读取场景图层"
+          />
         )}
         <div className="time-context" hidden={activeMenu !== "home"}>
           {scene.name} · 气象图层

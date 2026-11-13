@@ -5,6 +5,7 @@ import { parseAdministrativeBoundary } from "./administrativeBoundary";
 interface Props {
   scene: SceneConfig;
   stations: Station[];
+  status?: string;
 }
 
 interface PreviewGeometry {
@@ -13,7 +14,11 @@ interface PreviewGeometry {
 }
 
 /** 从本地行政区 GeoJSON 绘制轻量预览，不加载 Cesium、瓦片或地形资源。 */
-export function MapLoadingPreview({ scene, stations }: Props) {
+export function MapLoadingPreview({
+  scene,
+  stations,
+  status = "正在载入三维地图",
+}: Props) {
   const [geometry, setGeometry] = useState<PreviewGeometry>({
     paths: [],
     stations: [],
@@ -137,7 +142,7 @@ export function MapLoadingPreview({ scene, stations }: Props) {
       </svg>
       <div className="map-loading-preview__label">
         <span className="map-loading-preview__spinner" />
-        <span>正在载入三维地图</span>
+        <span>{status}</span>
         <small>{scene.name} · 预览</small>
       </div>
     </div>
