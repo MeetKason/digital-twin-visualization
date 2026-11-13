@@ -8,6 +8,7 @@ import {
 } from "../ui/controls";
 import { AsyncResourceOwner } from "./ownedResource";
 import { validateModelFile } from "./modelValidation";
+import { createId } from "../id";
 import {
   lazy,
   Suspense,
@@ -93,7 +94,7 @@ export function ModelManager({
         return;
       }
       const asset: Asset = {
-        id: crypto.randomUUID(),
+        id: createId(),
         name: name.trim(),
         kind: "model",
         blobId,

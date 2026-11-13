@@ -29,6 +29,7 @@ import { api, authApi, authorizationApi, type SessionUser } from "./api";
 import { Icon } from "./Icon";
 import { LayerPanel } from "./LayerPanel";
 import { Timeline } from "./Timeline";
+import { MapLoadingPreview } from "./MapLoadingPreview";
 import { useExtensions } from "./useExtensions";
 import { useBusiness } from "./business/useBusiness";
 import {
@@ -41,7 +42,9 @@ import { StationPage } from "./business/StationPage";
 import { WeatherPage } from "./business/WeatherPage";
 import { beijingTime } from "./time";
 import { readFile } from "./business/files";
-const MapView = lazy(() => import("./MapView"));
+// 登录进入工作台后立即并行下载 Cesium 地图包，不等场景 API 全部返回才开始。
+const loadMapView = () => import("./MapView");
+const MapView = lazy(loadMapView);
 const SettingsPage = lazy(() =>
   import("./business/SettingsPage").then((module) => ({
     default: module.SettingsPage,
@@ -83,6 +86,10 @@ export default function Workbench({ onExit }: { onExit: () => void }) {
   const [scenesLoaded, setScenesLoaded] = useState(false);
   const mounted = useRef(true),
     switching = useRef<AbortController | null>(null);
+  useEffect(() => {
+    // React.lazy 和预加载共用同一动态模块请求，避免场景数据加载后的瀑布式等待。
+    void loadMapView().catch(() => undefined);
+  }, []);
   const refreshScenes = useCallback(async (signal?: AbortSignal) => {
     const [list, grant] = await Promise.all([
       api.scenes(signal),
@@ -521,7 +528,9 @@ function WorkArea({
       <main className="map-workspace">
         {loadState === "ready" ? (
           <Suspense
-            fallback={<div className="loading-screen">正在载入三维引擎…</div>}
+            fallback={
+              <MapLoadingPreview scene={scene} stations={managedStations} />
+            }
           >
             <MapView
               resolvePluginFrame={extension.resolveFrame}

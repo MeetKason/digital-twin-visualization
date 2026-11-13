@@ -26,6 +26,7 @@ import {
   migrateFile,
   persistUploadedFile,
 } from "./files";
+import { createId } from "../id";
 const types = [
   "国家有人站",
   "国家无人站",
@@ -131,7 +132,7 @@ export function StationPage({
           assets: [
             ...old.assets,
             {
-              id: crypto.randomUUID(),
+              id: createId(),
               name: file.name,
               fileName: file.name,
               kind,
@@ -581,7 +582,7 @@ export function StationPage({
                     (s) => !old.stations.some((x) => x.id === s.id),
                   ),
                 ],
-                importReports: [...(old.importReports ?? []), { id: crypto.randomUUID(), fileName: importFileName, createdAt: new Date().toISOString(), imported: report.imported.length, skipped: report.skipped, errors: report.errors }].slice(-200),
+                importReports: [...(old.importReports ?? []), { id: createId(), fileName: importFileName, createdAt: new Date().toISOString(), imported: report.imported.length, skipped: report.skipped, errors: report.errors }].slice(-200),
               }));
               if (saved) setReport(null);
             }}
@@ -596,7 +597,7 @@ export function StationPage({
         <Button onClick={() => {
           const name = typeName.trim();
           if (!name || typeDefinitions.some((item) => item.name === name)) return;
-          void update((old) => ({ ...old, stationTypes: [...typeDefinitions, { id: crypto.randomUUID(), name, fields: [] }] }));
+          void update((old) => ({ ...old, stationTypes: [...typeDefinitions, { id: createId(), name, fields: [] }] }));
           setTypeName("");
         }}>新增类型</Button>
         <Table size="small" rowKey="id" pagination={false} scroll={{ x: 580 }} tableLayout="fixed" dataSource={typeDefinitions} columns={[{ title: "类型", dataIndex: "name", width: 120 }, { title: "扩展字段模板", width: 360, render: (_, item) => <Input.TextArea autoSize={{ minRows: 2, maxRows: 4 }} aria-label={`${item.name}字段模板`} defaultValue={item.fields.map((field) => `${field.key},${field.name},${field.required ? "必填" : "选填"}`).join("\n")} placeholder="每行：字段键,显示名,必填或选填" onBlur={(e) => {

@@ -380,6 +380,65 @@ button.primary {
   overflow: hidden;
   background: #d9e5df;
 }
+.map-loading-preview {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  background: linear-gradient(145deg, #b2c6a6, #d8d4b5 48%, #75927b);
+}
+.map-loading-preview__drawing {
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+.map-loading-preview__contours path {
+  stroke: #526e59;
+  stroke-opacity: .18;
+  stroke-width: 2;
+}
+.map-loading-preview__boundary path {
+  fill: #38b8d4;
+  fill-opacity: .08;
+  stroke: #21b2d4;
+  stroke-width: 3;
+  stroke-linejoin: round;
+  vector-effect: non-scaling-stroke;
+}
+.map-loading-preview__stations circle {
+  fill: #087dd1;
+  stroke: #fff;
+  stroke-width: 2;
+  vector-effect: non-scaling-stroke;
+}
+.map-loading-preview__label {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 11px 15px;
+  color: #284963;
+  background: #ffffffd9;
+  border: 1px solid #ffffff;
+  border-radius: 6px;
+  box-shadow: 0 3px 14px #20384b24;
+  white-space: nowrap;
+}
+.map-loading-preview__label small {
+  margin-left: 4px;
+  color: #74899b;
+}
+.map-loading-preview__spinner {
+  width: 15px;
+  height: 15px;
+  border: 2px solid #8dc4df;
+  border-top-color: #1263c4;
+  border-radius: 50%;
+  animation: map-preview-spin .8s linear infinite;
+}
+@keyframes map-preview-spin { to { transform: rotate(360deg); } }
 .map-canvas {
   position: absolute;
   inset: 0;

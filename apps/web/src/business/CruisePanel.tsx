@@ -8,6 +8,7 @@ import type { Business } from "./useBusiness";
 import { Modal } from "./Modal";
 import { ModelManager } from "./ModelManager";
 import { readFile } from "./files";
+import { createId } from "../id";
 export function CruisePanel({
   business,
   map,
@@ -109,7 +110,7 @@ export function CruisePanel({
     bookmarkId?: string,
   ) {
     const p: CruisePoint = {
-      id: crypto.randomUUID(),
+      id: createId(),
       name,
       lon,
       lat,
@@ -166,7 +167,7 @@ export function CruisePanel({
               }
               cancelSelection();
               controller.current?.stop();
-              const id = crypto.randomUUID();
+              const id = createId();
               const saved = await update((old) => ({
                 ...old,
                 plans: [
@@ -244,7 +245,7 @@ export function CruisePanel({
                   bookmarks: [
                     ...old.bookmarks,
                     {
-                      id: crypto.randomUUID(),
+                      id: createId(),
                       name: `漫游镜头 ${old.bookmarks.length + 1}`,
                       view,
                     },

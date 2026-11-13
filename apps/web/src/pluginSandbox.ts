@@ -1,5 +1,6 @@
 import type { DataFrame, LayerDescriptor } from "@dtv/contracts";
 import { PluginRequests, type PluginManifest } from "@dtv/sdk";
+import { createSecureId } from "./id";
 export interface PluginSandboxCallbacks {
   onSlot(id: string, value: unknown): void;
   onSlotRemoved(id: string): void;
@@ -40,7 +41,7 @@ export async function createPluginSandbox(
   scene: { id: string; center: [number, number] },
 ): Promise<PluginSandboxHandle> {
   const iframe = document.createElement("iframe"),
-    nonce = crypto.randomUUID();
+    nonce = createSecureId();
   const config = JSON.stringify({
     id: manifest.id,
     version: manifest.version,

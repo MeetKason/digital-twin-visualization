@@ -10,6 +10,7 @@ import {
 } from "@dtv/contracts";
 import type { Business } from "./useBusiness";
 import { Modal } from "./Modal";
+import { createId } from "../id";
 export type Environment = "none" | "rain" | "snow" | "fog";
 export function ToolsPanel({
   map,
@@ -218,7 +219,7 @@ export function ToolsPanel({
                   ...old,
                   bookmarks: [
                     ...old.bookmarks,
-                    { id: crypto.randomUUID(), name: name.trim(), view },
+                    { id: createId(), name: name.trim(), view },
                   ],
                 }));
                 setDialog(null);
