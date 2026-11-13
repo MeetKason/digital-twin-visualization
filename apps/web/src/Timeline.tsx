@@ -68,7 +68,7 @@ export function Timeline({
             {times[index] ? label(times[index]) : "无时次"}
           </span>
         </div>
-        <span className="timeline-source">Mock · 北京时间 UTC+8</span>
+        <span className="timeline-source">Mock · 北京时间</span>
       </div>
       <UiSlider
         disabled={!times.length}

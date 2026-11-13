@@ -1,12 +1,11 @@
 import { UiButton, UiInput, UiSelect } from "../ui/controls";
-import { Slider } from "antd";
+import { InputNumber, message, Popconfirm, Slider } from "antd";
 import { useEffect, useRef, useState } from "react";
 import { Icon } from "../Icon";
 import type { CruiseController, CruiseProgress, MapFacade } from "@dtv/sdk";
 import { movePoint, validatePlan, type CruisePoint } from "@dtv/contracts";
 import type { Business } from "./useBusiness";
 import { Modal } from "./Modal";
-import { ModelManager } from "./ModelManager";
 import { readFile } from "./files";
 import { createId } from "../id";
 export function CruisePanel({
@@ -21,7 +20,6 @@ export function CruisePanel({
     [pointId, setPointId] = useState(""),
     [picker, setPicker] = useState(false),
     [mapPicking, setMapPicking] = useState(false),
-    [models, setModels] = useState(false),
     [error, setError] = useState(""),
     [progress, setProgress] = useState<CruiseProgress | null>(null);
   const controller = useRef<CruiseController | null>(null),
@@ -119,11 +117,11 @@ export function CruisePanel({
       transition: 2,
       direction: 1,
       loops: 1,
-      radius: 5000,
-      pitch: -45,
+      radius: 2000,
+      pitch: -20,
       modelId,
       bookmarkId,
-      angle: 360,
+      angle: 0,
       flightHeight: 3000,
       curve: "smooth",
     };
@@ -143,6 +141,7 @@ export function CruisePanel({
           view: data.bookmarks.find((b) => b.id === p.bookmarkId)?.view,
         })),
         setProgress,
+        plan.speedMps ?? 130,
       );
       setError("");
     } catch (e) {
@@ -172,7 +171,7 @@ export function CruisePanel({
                 ...old,
                 plans: [
                   ...old.plans,
-                  { id, name: "新建漫游方案", points: [], saved: false },
+                  { id, name: "新建漫游方案", points: [], saved: false, speedMps: 130 },
                 ],
               }));
               if (!saved) {
@@ -255,11 +254,6 @@ export function CruisePanel({
           >
             保存当前视角
           </UiButton>
-          <h3>模型库</h3>
-          <UiButton onClick={() => setModels(true)}>管理/上传模型</UiButton>
-          <p className="muted">
-            {data.assets.filter((a) => a.kind === "model").length} 个已登记
-          </p>
           {plan ? (
             <>
               <h3>方案设置</h3>
@@ -272,6 +266,20 @@ export function CruisePanel({
                     onChange={(e) =>
                       edit((p) => ({ ...p, name: e.target.value }))
                     }
+                  />
+                </label>
+                <label className="cruise-speed-control">
+                  默认速度 (m/s)
+                  <InputNumber
+                    aria-label="默认漫游速度（米/秒）"
+                    min={10}
+                    max={1000}
+                    step={10}
+                    value={plan.speedMps ?? 130}
+                    onChange={(value) => {
+                      if (value !== null)
+                        edit((old) => ({ ...old, speedMps: value }));
+                    }}
                   />
                 </label>
                 <h3>点位序列</h3>
@@ -312,17 +320,24 @@ export function CruisePanel({
                     >
                       <Icon name="down" size={16} />
                     </UiButton>
-                    <UiButton
-                      aria-label={`删除节点${i + 1}`}
-                      onClick={() =>
+                    <Popconfirm
+                      title={`确认删除点位“${p.name}”吗？`}
+                      description="删除后需要重新添加才能恢复。"
+                      okText="确认删除"
+                      cancelText="取消"
+                      okButtonProps={{ danger: true }}
+                      placement="topRight"
+                      onConfirm={() =>
                         edit((old) => ({
                           ...old,
                           points: old.points.filter((x) => x.id !== p.id),
                         }))
                       }
                     >
-                      <Icon name="close" size={16} />
-                    </UiButton>
+                      <UiButton aria-label={`删除节点${i + 1}`}>
+                        <Icon name="close" size={16} />
+                      </UiButton>
+                    </Popconfirm>
                   </div>
                 ))}
                 <div className="tool-grid">
@@ -381,7 +396,7 @@ export function CruisePanel({
                           <UiInput
                             type="number"
                             step={key === "transition" ? ".1" : "1"}
-                            value={point[key] ?? (key === "angle" ? 360 : 3000)}
+                            value={point[key] ?? (key === "angle" ? 0 : 3000)}
                             onChange={(e) =>
                               edit((old) => ({
                                 ...old,
@@ -500,18 +515,27 @@ export function CruisePanel({
                 <UiButton
                   className="primary"
                   disabled={running}
-                  onClick={() => {
+                  onClick={async () => {
                     try {
                       validatePlan(plan);
-                      update((old) => ({
+                      const saved = await update((old) => ({
                         ...old,
                         plans: old.plans.map((p) =>
                           p.id === plan.id ? { ...p, saved: true } : p,
                         ),
                       }));
+                      if (!saved) {
+                        const reason = business.error || "漫游方案保存失败，请检查网络后重试";
+                        setError(reason);
+                        message.error(reason);
+                        return;
+                      }
                       setError("");
+                      message.success("漫游方案保存成功");
                     } catch (e) {
-                      setError((e as Error).message);
+                      const reason = (e as Error).message;
+                      setError(reason);
+                      message.error(reason);
                     }
                   }}
                 >
@@ -521,9 +545,14 @@ export function CruisePanel({
                   开始漫游
                 </UiButton>
               </div>
-              <UiButton
-                disabled={running}
-                onClick={() => {
+              <Popconfirm
+                title={`确认删除方案“${plan.name}”吗？`}
+                description={`该方案的 ${plan.points.length} 个点位也会一并删除。`}
+                okText="确认删除"
+                cancelText="取消"
+                okButtonProps={{ danger: true }}
+                placement="topRight"
+                onConfirm={() => {
                   update((old) => ({
                     ...old,
                     plans: old.plans.filter((p) => p.id !== plan.id),
@@ -532,8 +561,8 @@ export function CruisePanel({
                   setSelected("");
                 }}
               >
-                删除方案
-              </UiButton>
+                <UiButton disabled={running}>删除方案</UiButton>
+              </Popconfirm>
             </>
           ) : (
             <p className="empty-state">选择或新建漫游方案</p>
@@ -607,25 +636,6 @@ export function CruisePanel({
             </UiButton>
           ))}
         </Modal>
-      )}
-      {models && (
-        <ModelManager
-          business={business}
-          map={map}
-          lon={point?.lon ?? data.stations[0]?.lon ?? 0}
-          lat={point?.lat ?? data.stations[0]?.lat ?? 0}
-          height={point?.height}
-          onClose={() => setModels(false)}
-          onChoose={(id) => {
-            if (point)
-              edit((old) => ({
-                ...old,
-                points: old.points.map((p) =>
-                  p.id === point.id ? { ...p, modelId: id } : p,
-                ),
-              }));
-          }}
-        />
       )}
     </>
   );

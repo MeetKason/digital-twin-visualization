@@ -1,4 +1,8 @@
-import { rasterizeWeather, windGlyphs } from "./weatherRendering";
+import {
+  rasterizeObservationField,
+  rasterizeWeather,
+} from "./weatherRendering";
+import { createWindParticleOverlay } from "./windParticles";
 import { ImageryRecovery } from "./imageryRecovery";
 import { UiButton } from "./ui/controls";
 import { useEffect, useRef, useState } from "react";
@@ -24,6 +28,8 @@ import {
   ColorMaterialProperty,
   ImageMaterialProperty,
   PolylineArrowMaterialProperty,
+  ParticleSystem,
+  SphereEmitter,
   Cartesian2,
   LabelStyle,
   VerticalOrigin,
@@ -68,6 +74,48 @@ interface Props {
   ) => Promise<DataFrame | null>;
   onFrame?: (id: string, frame: DataFrame) => void;
 }
+
+/** 创建 Cesium 粒子所需的本地雨滴/雪花纹理，避免运行时依赖外部图片。 */
+function createWeatherParticleTexture(kind: "rain" | "snow"): HTMLCanvasElement {
+  const texture = document.createElement("canvas");
+  texture.width = 32;
+  texture.height = 32;
+  const context = texture.getContext("2d")!;
+  if (kind === "rain") {
+    const gradient = context.createLinearGradient(16, 2, 16, 30);
+    gradient.addColorStop(0, "rgba(194, 225, 255, 0.05)");
+    gradient.addColorStop(0.35, "rgba(194, 225, 255, 0.65)");
+    gradient.addColorStop(1, "rgba(255, 255, 255, 0.95)");
+    context.strokeStyle = gradient;
+    context.lineWidth = 3;
+    context.lineCap = "round";
+    context.beginPath();
+    context.moveTo(16, 2);
+    context.lineTo(16, 30);
+    context.stroke();
+  } else {
+    context.strokeStyle = "rgba(255,255,255,0.95)";
+    context.lineWidth = 2.2;
+    context.lineCap = "round";
+    for (let spoke = 0; spoke < 6; spoke++) {
+      const angle = (Math.PI * spoke) / 3;
+      const x = Math.cos(angle), y = Math.sin(angle);
+      context.beginPath();
+      context.moveTo(16 - x * 11, 16 - y * 11);
+      context.lineTo(16 + x * 11, 16 + y * 11);
+      context.stroke();
+      for (const side of [-1, 1]) {
+        const px = 16 + x * 6 * side, py = 16 + y * 6 * side;
+        context.beginPath();
+        context.moveTo(px, py);
+        context.lineTo(px - x * 3 - y * 3, py - y * 3 + x * 3);
+        context.stroke();
+      }
+    }
+  }
+  return texture;
+}
+
 export default function MapView({
   scene,
   stations,
@@ -109,6 +157,7 @@ export default function MapView({
     let terrainLoadTimer: number | undefined;
     let previousIonAccessToken: string | undefined;
     let activeIonAccessToken: string | undefined;
+    let stopWeather: (() => void) | undefined;
     let drawing: {
       kind: "distance" | "area";
       points: Coordinate[];
@@ -140,13 +189,113 @@ export default function MapView({
           infoBox: false,
           selectionIndicator: false,
           terrainProvider: new EllipsoidTerrainProvider(),
-          skyBox: false,
           requestRenderMode: true,
           maximumRenderTimeChange: Infinity,
           contextOptions: { webgl: { alpha: false } },
         });
         const v = viewer;
         viewerRef.current = v;
+        let weatherSystem: ParticleSystem | undefined;
+        let weatherTexture: HTMLCanvasElement | undefined;
+        let weatherFrame = 0;
+        let weatherWasAnimating = false;
+        let removeWeatherCameraListener: (() => void) | undefined;
+        const clearWeather = () => {
+          cancelAnimationFrame(weatherFrame);
+          removeWeatherCameraListener?.();
+          removeWeatherCameraListener = undefined;
+          if (weatherSystem && !v.isDestroyed())
+            v.scene.primitives.remove(weatherSystem);
+          weatherSystem = undefined;
+          if (weatherTexture) {
+            weatherTexture.width = 0;
+            weatherTexture.height = 0;
+          }
+          weatherTexture = undefined;
+          v.clock.shouldAnimate = weatherWasAnimating;
+          v.scene.requestRender();
+        };
+        const setWeather = (kind: "none" | "rain" | "snow") => {
+          clearWeather();
+          if (kind === "none" || v.isDestroyed()) return;
+          weatherWasAnimating = v.clock.shouldAnimate;
+          v.clock.shouldAnimate = true;
+          weatherTexture = createWeatherParticleTexture(kind);
+          const radius = 100_000;
+          const gravity = new Cartesian3();
+          const updateWeatherParticle: ParticleSystem.updateCallback = (
+            particle,
+            delta,
+          ) => {
+            Cartesian3.normalize(particle.position, gravity);
+            Cartesian3.multiplyByScalar(
+              gravity,
+              kind === "rain"
+                ? -1050 * delta
+                : CesiumMath.randomBetween(-90, -30) * delta,
+              gravity,
+            );
+            particle.velocity = Cartesian3.add(
+              particle.velocity,
+              gravity,
+              particle.velocity,
+            );
+            if (kind === "snow") {
+              // 轻微水平漂移让雪花下落更自然，不改变底层观测数据。
+              particle.velocity.x += Math.sin(particle.age * 1.7) * 0.4 * delta;
+              particle.velocity.y += Math.cos(particle.age * 1.3) * 0.4 * delta;
+            }
+            const distance = Cartesian3.distance(
+              v.camera.positionWC,
+              particle.position,
+            );
+            particle.endColor.alpha = distance > radius
+              ? 0
+              : (kind === "rain" ? 0.7 : 0.95) / (distance / radius + 0.1);
+          };
+          weatherSystem = new ParticleSystem({
+            modelMatrix: Matrix4.fromTranslation(v.camera.positionWC),
+            emitter: new SphereEmitter(radius),
+            image: weatherTexture,
+            emissionRate: kind === "rain" ? 900 : 700,
+            lifetime: Number.MAX_VALUE,
+            minimumParticleLife: kind === "rain" ? 1.2 : 3,
+            maximumParticleLife: kind === "rain" ? 2.8 : 6,
+            minimumSpeed: -1,
+            maximumSpeed: 0,
+            startScale: kind === "rain" ? 1 : 0.7,
+            endScale: kind === "rain" ? 0.4 : 1.2,
+            startColor: kind === "rain"
+              ? new Color(0.62, 0.78, 0.98, 0.1)
+              : Color.WHITE.withAlpha(0.25),
+            endColor: kind === "rain"
+              ? new Color(0.7, 0.84, 1, 0.8)
+              : Color.WHITE.withAlpha(0.95),
+            minimumImageSize: kind === "rain"
+              ? new Cartesian2(4, 15)
+              : new Cartesian2(8, 8),
+            maximumImageSize: kind === "rain"
+              ? new Cartesian2(8, 28)
+              : new Cartesian2(20, 20),
+            updateCallback: updateWeatherParticle,
+          });
+          v.scene.primitives.add(weatherSystem);
+          removeWeatherCameraListener = v.scene.preUpdate.addEventListener(() => {
+            if (weatherSystem)
+              Matrix4.fromTranslation(v.camera.positionWC, weatherSystem.modelMatrix);
+          });
+          let lastRender = 0;
+          const requestWeatherRender = (now: number) => {
+            if (!weatherSystem || v.isDestroyed()) return;
+            weatherFrame = requestAnimationFrame(requestWeatherRender);
+            if (now - lastRender < 32) return;
+            lastRender = now;
+            v.scene.requestRender();
+          };
+          weatherFrame = requestAnimationFrame(requestWeatherRender);
+          v.scene.requestRender();
+        };
+        stopWeather = clearWeather;
         removeCameraListeners.push(
           v.camera.moveStart.addEventListener(() => {
             if (!disposed) setMoving(true);
@@ -161,43 +310,67 @@ export default function MapView({
           }),
         );
         let cameraTouched = false;
-        const markCameraTouched = () => { cameraTouched = true; };
+        const markCameraTouched = () => {
+          cameraTouched = true;
+        };
         v.scene.canvas.addEventListener("pointerdown", markCameraTouched, true);
         v.scene.canvas.addEventListener("wheel", markCameraTouched, true);
         removeCameraListeners.push(() => {
-          v.scene.canvas.removeEventListener("pointerdown", markCameraTouched, true);
+          v.scene.canvas.removeEventListener(
+            "pointerdown",
+            markCameraTouched,
+            true,
+          );
           v.scene.canvas.removeEventListener("wheel", markCameraTouched, true);
         });
-        v.scene.globe.baseColor = Color.fromCssColorString("#d9e6dd");
-        v.scene.backgroundColor = Color.fromCssColorString("#d9e5ed");
+        v.scene.globe.baseColor = Color.fromCssColorString("#03060c");
+        v.scene.backgroundColor = Color.fromCssColorString("#02040a");
         v.scene.globe.enableLighting = true;
         v.scene.verticalExaggeration = 1.2;
         v.scene.verticalExaggerationRelativeHeight = 0;
         const home = async () => {
-          const fallback = () => v.camera.flyTo({
-            // 缺少边界资源时仍使用配置中心，并保持真正的垂直俯视。
-            destination: Cartesian3.fromDegrees(...scene.center, scene.height),
-            orientation: { heading: 0, pitch: CesiumMath.toRadians(-90), roll: 0 },
-            duration: 0.7,
-          });
+          const fallback = () =>
+            v.camera.flyTo({
+              // 缺少边界资源时仍使用配置中心，并保持真正的垂直俯视。
+              destination: Cartesian3.fromDegrees(
+                ...scene.center,
+                scene.height,
+              ),
+              orientation: {
+                heading: 0,
+                pitch: CesiumMath.toRadians(-90),
+                roll: 0,
+              },
+              duration: 0.7,
+            });
           if (!scene.boundaryUrl) {
             fallback();
             return;
           }
           try {
             // 以行政边界范围计算首屏相机框，避免固定中心点和倾斜角造成边界偏移或裁切。
-            const response = await fetch(scene.boundaryUrl, { signal: lifecycle.signal });
+            const response = await fetch(scene.boundaryUrl, {
+              signal: lifecycle.signal,
+            });
             if (!response.ok) throw new Error("场景边界读取失败");
-            const boundaries = parseAdministrativeBoundary(await response.json());
-            const coordinates = boundaries.flatMap((boundary) => boundary.coordinates);
-            let west = 180, east = -180, south = 90, north = -90;
+            const boundaries = parseAdministrativeBoundary(
+              await response.json(),
+            );
+            const coordinates = boundaries.flatMap(
+              (boundary) => boundary.coordinates,
+            );
+            let west = 180,
+              east = -180,
+              south = 90,
+              north = -90;
             for (let index = 0; index < coordinates.length; index += 2) {
               west = Math.min(west, coordinates[index]);
               east = Math.max(east, coordinates[index]);
               south = Math.min(south, coordinates[index + 1]);
               north = Math.max(north, coordinates[index + 1]);
             }
-            if (west >= east || south >= north) throw new Error("场景边界范围无效");
+            if (west >= east || south >= north)
+              throw new Error("场景边界范围无效");
             if (disposed || cameraTouched || lifecycle.signal.aborted) return;
             const longitudePadding = (east - west) * 0.35;
             const latitudePadding = (north - south) * 0.35;
@@ -208,12 +381,17 @@ export default function MapView({
                 east + longitudePadding,
                 north + latitudePadding,
               ),
-              orientation: { heading: 0, pitch: CesiumMath.toRadians(-90), roll: 0 },
+              orientation: {
+                heading: 0,
+                pitch: CesiumMath.toRadians(-90),
+                roll: 0,
+              },
               duration: 0.8,
             });
           } catch {
             // 场景资源不可用时回退到配置视角；不覆盖用户已开始的地图操作。
-            if (!disposed && !cameraTouched && !lifecycle.signal.aborted) fallback();
+            if (!disposed && !cameraTouched && !lifecycle.signal.aborted)
+              fallback();
           }
         };
         void home();
@@ -383,6 +561,7 @@ export default function MapView({
           if (signal.aborted || disposed) throw new Error("加载已取消");
           const source = new CustomDataSource(id);
           let rasterCanvas: HTMLCanvasElement | undefined;
+          let windOverlay: ReturnType<typeof createWindParticleOverlay> = null;
           const [lon, lat] = scene.center;
           const palette =
             id === "radar"
@@ -552,11 +731,42 @@ export default function MapView({
               }),
             );
           } else if (
-            id === "radar" ||
-            id === "satellite" ||
-            id === "forecast"
+            [
+              "radar",
+              "satellite",
+              "forecast",
+              "temperature",
+              "rainfall",
+              "humidity",
+            ].includes(id)
           ) {
-            const raster = rasterizeWeather(frame?.gridCells ?? [], id);
+            const fieldBounds: [number, number, number, number] = [
+              lon - 0.58,
+              lat - 0.44,
+              lon + 0.58,
+              lat + 0.44,
+            ];
+            const raster =
+              id === "temperature" || id === "rainfall" || id === "humidity"
+                ? rasterizeObservationField(
+                    frame ?? {
+                      observations: [],
+                      source: "mock",
+                      observedAt: "",
+                      unit: "",
+                      crs: "EPSG:4326",
+                    },
+                    id === "temperature"
+                      ? "temperatureC"
+                      : id === "rainfall"
+                        ? "rainfallMm"
+                        : "relativeHumidity",
+                    fieldBounds,
+                  )
+                : rasterizeWeather(
+                    frame?.gridCells ?? [],
+                    id as "radar" | "satellite" | "forecast",
+                  );
             if (raster) {
               rasterCanvas = document.createElement("canvas");
               rasterCanvas.width = raster.width;
@@ -582,28 +792,12 @@ export default function MapView({
               });
             }
           } else if (id === "wind") {
-            for (const glyph of windGlyphs(frame?.gridCells ?? [])) {
-              source.entities.add({
-                id: glyph.id,
-                polyline: {
-                  positions: Cartesian3.fromDegreesArray([
-                    ...glyph.start,
-                    ...glyph.end,
-                  ]),
-                  clampToGround: true,
-                  width: 7,
-                  material: new PolylineArrowMaterialProperty(
-                    Color.fromCssColorString(
-                      glyph.speed >= 12
-                        ? "#ff7043"
-                        : glyph.speed >= 6
-                          ? "#ffc857"
-                          : "#39c9ed",
-                    ),
-                  ),
-                },
-              });
-            }
+            if (container.current && frame?.gridCells?.length)
+              windOverlay = createWindParticleOverlay(
+                container.current,
+                v.scene,
+                frame.gridCells,
+              );
           } else if (frame?.gridCells?.length) {
             for (const cell of frame.gridCells) {
               const range =
@@ -702,6 +896,7 @@ export default function MapView({
           v.scene.requestRender();
           return {
             setOpacity(value) {
+              windOverlay?.setOpacity(value);
               source.entities.values.forEach((e) => {
                 const color = baseColors.get(e);
                 if (color && e.rectangle) {
@@ -752,6 +947,8 @@ export default function MapView({
               await runtime?.toggle(id, true);
             },
             dispose() {
+              windOverlay?.dispose();
+              windOverlay = null;
               if (rasterCanvas) {
                 rasterCanvas.width = 0;
                 rasterCanvas.height = 0;
@@ -781,14 +978,28 @@ export default function MapView({
         };
         let deviceAlertEntity: Entity | undefined;
         const map: MapFacade = {
+          setEnvironment: setWeather,
           showDeviceAlert: (device) => {
             if (v.isDestroyed()) return;
             if (deviceAlertEntity) v.entities.remove(deviceAlertEntity);
             // 演示设备标记属于当前 Viewer，场景切换销毁 Viewer 时一并释放。
             deviceAlertEntity = v.entities.add({
               position: Cartesian3.fromDegrees(device.lon, device.lat),
-              point: { pixelSize: 15, color: device.alert ? Color.ORANGE : Color.CYAN, outlineColor: Color.WHITE, outlineWidth: 2, heightReference: HeightReference.CLAMP_TO_GROUND },
-              label: { text: `${device.name}\n${device.alert ?? "Mock 设备"}`, font: "15px sans-serif", fillColor: Color.WHITE, showBackground: true, pixelOffset: new Cartesian2(0, -28), verticalOrigin: VerticalOrigin.BOTTOM },
+              point: {
+                pixelSize: 15,
+                color: device.alert ? Color.ORANGE : Color.CYAN,
+                outlineColor: Color.WHITE,
+                outlineWidth: 2,
+                heightReference: HeightReference.CLAMP_TO_GROUND,
+              },
+              label: {
+                text: `${device.name}\n${device.alert ?? "Mock 设备"}`,
+                font: "15px sans-serif",
+                fillColor: Color.WHITE,
+                showBackground: true,
+                pixelOffset: new Cartesian2(0, -28),
+                verticalOrigin: VerticalOrigin.BOTTOM,
+              },
             });
             v.scene.requestRender();
           },
@@ -923,9 +1134,32 @@ export default function MapView({
               }
             };
           },
-          startCruise: (points, onProgress) => {
+          startCruise: (points, onProgress, requestedSpeedMps = 130) => {
             stopCruise?.();
             clearDrawing();
+            const speedMps = Number.isFinite(requestedSpeedMps)
+              ? Math.max(10, Math.min(1000, requestedSpeedMps))
+              : 130;
+            const cameraPosition = v.camera.positionCartographic;
+            const startingPoint = {
+              lon: CesiumMath.toDegrees(cameraPosition.longitude),
+              lat: CesiumMath.toDegrees(cameraPosition.latitude),
+            };
+            const headingBetween = (
+              from: { lon: number; lat: number },
+              to: { lon: number; lat: number },
+              fallback: number,
+            ) => {
+              if (from.lon === to.lon && from.lat === to.lat) return fallback;
+              const fromLat = CesiumMath.toRadians(from.lat);
+              const toLat = CesiumMath.toRadians(to.lat);
+              const deltaLon = CesiumMath.toRadians(to.lon - from.lon);
+              const y = Math.sin(deltaLon) * Math.cos(toLat);
+              const x =
+                Math.cos(fromLat) * Math.sin(toLat) -
+                Math.sin(fromLat) * Math.cos(toLat) * Math.cos(deltaLon);
+              return Math.atan2(y, x);
+            };
             let index = 0,
               elapsed = 0,
               phase: "transition" | "orbit" = "transition",
@@ -934,6 +1168,17 @@ export default function MapView({
               frameId = 0,
               last = performance.now(),
               lastReport = 0;
+            // 用节点间实际地表距离和方案速度计算转场时间，并保留用户设置的最短转场时长。
+            const transitionDuration = (targetIndex: number) => {
+              const target = points[targetIndex];
+              const previous = points[targetIndex - 1] ?? startingPoint;
+              const travelSeconds =
+                distanceMeters([
+                  [previous.lon, previous.lat],
+                  [target.lon, target.lat],
+                ]) / speedMps;
+              return Math.max(target.transition, travelSeconds);
+            };
             const report = (
               state: "playing" | "paused" | "stopped" | "complete",
             ) =>
@@ -945,7 +1190,7 @@ export default function MapView({
                   1,
                   elapsed /
                     (phase === "transition"
-                      ? points[index].transition
+                      ? transitionDuration(index)
                       : points[index].duration),
                 ),
               });
@@ -985,9 +1230,20 @@ export default function MapView({
               if (!paused) {
                 elapsed += dt;
                 const p = points[index],
-                  previous = points[Math.max(0, index - 1)];
+                  previous = points[index - 1] ?? startingPoint;
+                const next = points[index + 1];
+                const routeHeading =
+                  phase === "transition"
+                    ? headingBetween(previous, p, v.camera.heading)
+                    : next
+                      ? headingBetween(p, next, v.camera.heading)
+                      : index > 0
+                        ? headingBetween(previous, p, v.camera.heading)
+                        : v.camera.heading;
                 const duration =
-                  phase === "transition" ? p.transition : p.duration;
+                  phase === "transition"
+                    ? transitionDuration(index)
+                    : p.duration;
                 const t = Math.min(1, elapsed / duration);
                 const k =
                   phase === "transition"
@@ -1000,7 +1256,7 @@ export default function MapView({
                 const heading =
                   phase === "orbit"
                     ? t *
-                      CesiumMath.toRadians(p.angle ?? 360) *
+                      CesiumMath.toRadians(p.angle ?? 0) *
                       p.loops *
                       p.direction
                     : 0;
@@ -1014,7 +1270,7 @@ export default function MapView({
                         : 0),
                   ),
                   new HeadingPitchRange(
-                    (p.view?.heading ?? 0) + heading,
+                    (p.view?.heading ?? routeHeading) + heading,
                     p.view?.pitch ?? CesiumMath.toRadians(p.pitch),
                     p.view
                       ? Math.max(
@@ -1065,7 +1321,10 @@ export default function MapView({
               },
               seek(nextIndex) {
                 if (stopped || !Number.isFinite(nextIndex)) return;
-                index = Math.max(0, Math.min(points.length - 1, Math.round(nextIndex)));
+                index = Math.max(
+                  0,
+                  Math.min(points.length - 1, Math.round(nextIndex)),
+                );
                 phase = "orbit";
                 elapsed = 0;
                 focusPoint(points[index]);
@@ -1101,8 +1360,9 @@ export default function MapView({
           if (drawing || pickOnce) {
             const ray = v.camera.getPickRay(click.position);
             // 优先拾取实际地形；地形瓦片尚未加载或服务不可用时回退到椭球，保证仍可添加坐标点。
-            const world = (ray ? v.scene.globe.pick(ray, v.scene) : undefined)
-              ?? v.camera.pickEllipsoid(click.position, v.scene.globe.ellipsoid);
+            const world =
+              (ray ? v.scene.globe.pick(ray, v.scene) : undefined) ??
+              v.camera.pickEllipsoid(click.position, v.scene.globe.ellipsoid);
             if (!world) return;
             const c = Cartographic.fromCartesian(world);
             const lon = CesiumMath.toDegrees(c.longitude),
@@ -1137,6 +1397,29 @@ export default function MapView({
                     material: Color.CYAN.withAlpha(0.25),
                   },
                 });
+              pts.forEach(([pointLon, pointLat], pointIndex) => {
+                drawingSource?.entities.add({
+                  position: Cartesian3.fromDegrees(pointLon, pointLat, 15),
+                  point: {
+                    pixelSize: 13,
+                    color: Color.fromCssColorString("#1263c4"),
+                    outlineColor: Color.WHITE,
+                    outlineWidth: 3,
+                    heightReference: HeightReference.RELATIVE_TO_GROUND,
+                    disableDepthTestDistance: Number.POSITIVE_INFINITY,
+                  },
+                  label: {
+                    text: String(pointIndex + 1),
+                    font: "bold 11px sans-serif",
+                    fillColor: Color.WHITE,
+                    showBackground: true,
+                    backgroundColor: Color.fromCssColorString("#163d61").withAlpha(0.9),
+                    pixelOffset: new Cartesian2(0, -19),
+                    heightReference: HeightReference.RELATIVE_TO_GROUND,
+                    disableDepthTestDistance: Number.POSITIVE_INFINITY,
+                  },
+                });
+              });
               drawingSource?.entities.add({
                 position: world,
                 label: {
@@ -1198,6 +1481,7 @@ export default function MapView({
         Ion.defaultAccessToken = previousIonAccessToken;
       }
       stopCruise?.();
+      stopWeather?.();
       runtime?.dispose();
       runtimeRef.current = null;
       viewerRef.current = null;

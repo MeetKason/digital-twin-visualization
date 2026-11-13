@@ -17,7 +17,6 @@ import { beijingTime } from "../time";
 import { api } from "../api";
 import { Modal } from "./Modal";
 import { FileMaintenance } from "./FileMaintenance";
-import { ModelManager } from "./ModelManager";
 import { download, type Business } from "./useBusiness";
 import {
   readFile,
@@ -70,7 +69,6 @@ export function StationPage({
     [category, setCategory] = useState("全部"),
     [dialog, setDialog] = useState<ManagedStation | null>(null),
     [isNew, setIsNew] = useState(false),
-    [models, setModels] = useState(false),
     [error, setError] = useState(""),
     [report, setReport] = useState<ReturnType<typeof parseStationCsv> | null>(
       null,
@@ -323,10 +321,8 @@ export function StationPage({
                         </option>
                       ))}
                   </UiSelect>
-                  <UiButton disabled={!allowFiles} htmlType="button" onClick={() => setModels(true)}>
-                    上传/绑定
-                  </UiButton>
                 </div>
+                <p className="muted">模型文件请在系统管理的模型管理中上传；此处可选择已登记模型。</p>
                 <label>
                   站点默认巡航视角（可选）
                   <UiSelect
@@ -544,20 +540,6 @@ export function StationPage({
             <UiButton className="primary" type="submit">保存站点</UiButton>
           </form>
         </Modal>
-      )}
-      {allowFiles && models && (dialog ?? station) && (
-        <ModelManager
-          business={business}
-          map={map}
-          lon={(dialog ?? station).lon}
-          lat={(dialog ?? station).lat}
-          height={(dialog ?? station).elevationM}
-          onClose={() => setModels(false)}
-          onChoose={(id) => {
-            if (dialog) setDialog({ ...dialog, modelId: id });
-            else if (draft) setDraft({ ...draft, modelId: id });
-          }}
-        />
       )}
       {report && (
         <Modal title="站点导入预校验" onClose={() => setReport(null)}>

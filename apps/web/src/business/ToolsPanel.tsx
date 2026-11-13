@@ -287,15 +287,15 @@ export function ToolsPanel({
   );
 }
 export function EnvironmentOverlay({ value }: { value: Environment }) {
-  if (value === "none") return null;
+  if (value !== "fog") return null;
   return (
     <div
       className={`environment-overlay ${value}`}
-      aria-label={`${value === "rain" ? "雨景" : value === "snow" ? "雪景" : "雾景"}模拟`}
+      aria-label="雾效模拟"
     >
       <div className="particles" />
       <span>
-        视觉模拟 · {value === "rain" ? "雨" : value === "snow" ? "雪" : "雾"}
+        视觉模拟 · 雾
       </span>
     </div>
   );

@@ -18,7 +18,7 @@ import {
   useRef,
   useState,
 } from "react";
-import type { MapFacade, LayerRuntime } from "@dtv/sdk";
+import type { LayerRuntime, MapFacade } from "@dtv/sdk";
 import {
   DEMO_TIMES,
   type Asset,
@@ -45,7 +45,6 @@ export function ModelManager({
   onChoose,
 }: {
   business: Business;
-  map: MapFacade | null;
   lon: number;
   lat: number;
   height?: number;

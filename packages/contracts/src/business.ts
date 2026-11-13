@@ -72,6 +72,8 @@ export interface CruisePlan {
   name: string;
   points: CruisePoint[];
   saved: boolean;
+  /** 节点间默认移动速度（米/秒）；旧方案缺省时按130米/秒处理。 */
+  speedMps?: number;
 }
 export interface DemoUser {
   id: string;
@@ -256,13 +258,22 @@ export function movePoint<T>(points: T[], from: number, to: number) {
   copy.splice(to, 0, item);
   return copy;
 }
-export function validatePlan(plan: { name: string; points: CruisePoint[] }) {
+export function validatePlan(plan: {
+  name: string;
+  points: CruisePoint[];
+  speedMps?: number;
+}) {
   if (!plan.name.trim() || !plan.points.length)
     throw new Error("方案名称和至少一个点位必填");
+  if (
+    plan.speedMps !== undefined &&
+    (!Number.isFinite(plan.speedMps) || plan.speedMps < 10 || plan.speedMps > 1000)
+  )
+    throw new Error("漫游速度须在10至1000米/秒之间");
   for (const p of plan.points) {
     if (
       p.angle !== undefined &&
-      (!Number.isFinite(p.angle) || p.angle <= 0 || p.angle > 3600)
+      (!Number.isFinite(p.angle) || p.angle < 0 || p.angle > 3600)
     )
       throw new Error("环绕角度超出范围");
     if (
@@ -371,6 +382,7 @@ const businessSchema = z.object({
         id: stringId,
         name: z.string(),
         saved: z.boolean(),
+        speedMps: z.number().min(10).max(1000).optional(),
         points: z.array(pointSchema).max(200),
       }),
     )

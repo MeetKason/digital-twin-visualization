@@ -217,7 +217,7 @@ export function WeatherPage({
               key: String(index),
               label: (
                 <span className="weather-topic-item">
-                  <strong>{String(index + 1).padStart(2, "0")}　{label}</strong>
+                  <strong>{String(index + 1).padStart(2, "0")} {label}</strong>
                   <small>{topicDescriptions[index]}</small>
                 </span>
               ),
@@ -229,7 +229,7 @@ export function WeatherPage({
         </div>
       </UiCard>
       <div className="topic-map-heading panel">
-        {topics[topic]} · {scope === "city" ? "西安市全域" : "重点站点"} · {windowSize === 1 ? "当前时次" : `近 ${windowSize} 个时次`} · {beijingTime(time)} UTC+8{" "}
+        {topics[topic]} · {scope === "city" ? "西安市全域" : "重点站点"} · {windowSize === 1 ? "当前时次" : `近 ${windowSize} 个时次`} · {beijingTime(time)}{" "}
         <span className="tag">Mock</span>
       </div>
       <UiCard className="topic-metrics panel" bordered styles={{ body: { padding: 0 } }}>

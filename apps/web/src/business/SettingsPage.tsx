@@ -24,6 +24,8 @@ import { download } from "./useBusiness";
 import { IngestionPanel } from "./IngestionPanel";
 import { AuditLogPage } from "./AuditLogPage";
 import { PublicationPage } from "./PublicationPage";
+import { ModelManager } from "./ModelManager";
+import type { SceneConfig } from "@dtv/contracts";
 const AccountManagement = lazy(() =>
   import("./AccountManagement").then((module) => ({
     default: module.AccountManagement,
@@ -40,14 +42,17 @@ const sections = [
   "发布管理",
   "操作审计",
   "站点数据",
+  "模型管理",
 ];
 export function SettingsPage({
+  scene,
   business,
   modules,
   extension,
   onDataChanged,
   onSceneApplied,
 }: {
+  scene: SceneConfig;
   business: Business;
   modules: ProductModule[];
   extension: ReturnType<typeof useExtensions>;
@@ -56,7 +61,8 @@ export function SettingsPage({
 }) {
   const [section, setSection] = useState(sections[0]),
     [config, setConfig] = useState<unknown>(null),
-    [error, setError] = useState("");
+    [error, setError] = useState(""),
+    [modelManagerOpen, setModelManagerOpen] = useState(false);
   useEffect(() => {
     const ctrl = new AbortController();
     void fetch("/config.json", { signal: ctrl.signal })
@@ -115,11 +121,27 @@ export function SettingsPage({
                           ? "修订快照与发布历史"
                           : section === "站点数据"
                             ? "服务端资料与采集"
+                            : section === "模型管理"
+                              ? "模型登记、预览与文件维护"
                             : "演示配置"}
             </span>
           </div>
           <div className="panel-body">
-            {section === "租户产品授权" ? (
+            {section === "模型管理" ? (
+              <>
+                <p>管理当前场景的三维模型文件，可登记模型、预览模型或维护已上传文件。</p>
+                <p className="muted">当前场景：{scene.name} · 已登记模型 {business.data.assets.filter((asset) => asset.kind === "model").length} 个</p>
+                <Button type="primary" onClick={() => setModelManagerOpen(true)}>打开模型管理</Button>
+                {modelManagerOpen && (
+                  <ModelManager
+                    business={business}
+                    lon={scene.center[0]}
+                    lat={scene.center[1]}
+                    onClose={() => setModelManagerOpen(false)}
+                  />
+                )}
+              </>
+            ) : section === "租户产品授权" ? (
               <TenantAuthorization onApplied={onSceneApplied} />
             ) : section === "插件管理" ? (
               <PluginManagement extension={extension} />

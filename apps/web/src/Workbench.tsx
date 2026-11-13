@@ -297,6 +297,12 @@ function WorkArea({
   );
   const [modelError, setModelError] = useState("");
   const [environment, setEnvironment] = useState<Environment>("none");
+  useEffect(() => {
+    map?.setEnvironment?.(
+      environment === "rain" || environment === "snow" ? environment : "none",
+    );
+    return () => map?.setEnvironment?.("none");
+  }, [map, environment]);
   const extension = useExtensions(map, scene, modules.includes("plugins"));
   useEffect(() => {
     if (
@@ -684,6 +690,7 @@ function WorkArea({
         {activeMenu === "settings" && (
           <Suspense fallback={<p className="muted">正在加载系统设置…</p>}>
             <SettingsPage
+              scene={scene}
               business={business}
               modules={modules}
               extension={extension}
@@ -841,7 +848,6 @@ function StationDetails({
         </UiButton>
       </div>
       <div className="panel-body">
-        <span className="tag">Mock 示例站点</span>
         <h2>{station.name}</h2>
         <p className="station-code">
           {station.id} · {station.type}
@@ -864,7 +870,7 @@ function StationDetails({
         </div>
         <dl>
           <dt>有效时次</dt>
-          <dd>{beijingTime(time)} UTC+8</dd>
+          <dd>{beijingTime(time)}</dd>
           <dt>经纬度</dt>
           <dd>
             {station.lon.toFixed(4)}, {station.lat.toFixed(4)}
@@ -874,9 +880,6 @@ function StationDetails({
           <dt>数据质量</dt>
           <dd>{frame ? "演示资料，不用于业务研判" : error || "加载中…"}</dd>
         </dl>
-        <p className="data-disclaimer">
-          关联模型、视频和 PDF 可在点位管理中查看；演示资料不用于业务研判。
-        </p>
         {extension.discovering ? (
           <p className="muted">正在发现同源插件…</p>
         ) : extension.plugins.length > 0 ? (
