@@ -298,9 +298,7 @@ function WorkArea({
   const [modelError, setModelError] = useState("");
   const [environment, setEnvironment] = useState<Environment>("none");
   useEffect(() => {
-    map?.setEnvironment?.(
-      environment === "rain" || environment === "snow" ? environment : "none",
-    );
+    map?.setEnvironment?.(environment);
     return () => map?.setEnvironment?.("none");
   }, [map, environment]);
   const extension = useExtensions(map, scene, modules.includes("plugins"));

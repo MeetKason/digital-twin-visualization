@@ -75,47 +75,6 @@ interface Props {
   onFrame?: (id: string, frame: DataFrame) => void;
 }
 
-/** 创建 Cesium 粒子所需的本地雨滴/雪花纹理，避免运行时依赖外部图片。 */
-function createWeatherParticleTexture(kind: "rain" | "snow"): HTMLCanvasElement {
-  const texture = document.createElement("canvas");
-  texture.width = 32;
-  texture.height = 32;
-  const context = texture.getContext("2d")!;
-  if (kind === "rain") {
-    const gradient = context.createLinearGradient(16, 2, 16, 30);
-    gradient.addColorStop(0, "rgba(194, 225, 255, 0.05)");
-    gradient.addColorStop(0.35, "rgba(194, 225, 255, 0.65)");
-    gradient.addColorStop(1, "rgba(255, 255, 255, 0.95)");
-    context.strokeStyle = gradient;
-    context.lineWidth = 3;
-    context.lineCap = "round";
-    context.beginPath();
-    context.moveTo(16, 2);
-    context.lineTo(16, 30);
-    context.stroke();
-  } else {
-    context.strokeStyle = "rgba(255,255,255,0.95)";
-    context.lineWidth = 2.2;
-    context.lineCap = "round";
-    for (let spoke = 0; spoke < 6; spoke++) {
-      const angle = (Math.PI * spoke) / 3;
-      const x = Math.cos(angle), y = Math.sin(angle);
-      context.beginPath();
-      context.moveTo(16 - x * 11, 16 - y * 11);
-      context.lineTo(16 + x * 11, 16 + y * 11);
-      context.stroke();
-      for (const side of [-1, 1]) {
-        const px = 16 + x * 6 * side, py = 16 + y * 6 * side;
-        context.beginPath();
-        context.moveTo(px, py);
-        context.lineTo(px - x * 3 - y * 3, py - y * 3 + x * 3);
-        context.stroke();
-      }
-    }
-  }
-  return texture;
-}
-
 export default function MapView({
   scene,
   stations,
@@ -195,11 +154,19 @@ export default function MapView({
         });
         const v = viewer;
         viewerRef.current = v;
+        const skyAtmosphere = v.scene.skyAtmosphere;
         let weatherSystem: ParticleSystem | undefined;
-        let weatherTexture: HTMLCanvasElement | undefined;
         let weatherFrame = 0;
         let weatherWasAnimating = false;
         let removeWeatherCameraListener: (() => void) | undefined;
+        const baseWeatherAppearance = {
+          fogEnabled: v.scene.fog.enabled,
+          fogDensity: v.scene.fog.density,
+          fogMinimumBrightness: v.scene.fog.minimumBrightness,
+          atmosphereHue: skyAtmosphere?.hueShift,
+          atmosphereSaturation: skyAtmosphere?.saturationShift,
+          atmosphereBrightness: skyAtmosphere?.brightnessShift,
+        };
         const clearWeather = () => {
           cancelAnimationFrame(weatherFrame);
           removeWeatherCameraListener?.();
@@ -207,21 +174,59 @@ export default function MapView({
           if (weatherSystem && !v.isDestroyed())
             v.scene.primitives.remove(weatherSystem);
           weatherSystem = undefined;
-          if (weatherTexture) {
-            weatherTexture.width = 0;
-            weatherTexture.height = 0;
+          // 每次切换天气先还原 Cesium 场景原始大气参数，避免效果叠加。
+          v.scene.fog.enabled = baseWeatherAppearance.fogEnabled;
+          v.scene.fog.density = baseWeatherAppearance.fogDensity;
+          v.scene.fog.minimumBrightness =
+            baseWeatherAppearance.fogMinimumBrightness;
+          if (skyAtmosphere) {
+            skyAtmosphere.hueShift = baseWeatherAppearance.atmosphereHue ?? 0;
+            skyAtmosphere.saturationShift =
+              baseWeatherAppearance.atmosphereSaturation ?? 0;
+            skyAtmosphere.brightnessShift =
+              baseWeatherAppearance.atmosphereBrightness ?? 0;
           }
-          weatherTexture = undefined;
           v.clock.shouldAnimate = weatherWasAnimating;
           v.scene.requestRender();
         };
-        const setWeather = (kind: "none" | "rain" | "snow") => {
+        const setWeather = (kind: "none" | "rain" | "snow" | "fog") => {
           clearWeather();
           if (kind === "none" || v.isDestroyed()) return;
+          if (kind === "fog") {
+            // 使用 Cesium 原生距离雾，沿地平线渐隐地形，不覆盖本地站点标记。
+            v.scene.fog.enabled = true;
+            v.scene.fog.density = 0.001;
+            v.scene.fog.minimumBrightness = 0.68;
+            v.scene.requestRender();
+            return;
+          }
           weatherWasAnimating = v.clock.shouldAnimate;
           v.clock.shouldAnimate = true;
-          weatherTexture = createWeatherParticleTexture(kind);
+          // 轻微改变天空散射色，参考 Cesium 官方雨雪示例营造阴雨/降雪氛围。
+          if (kind === "rain") {
+            if (skyAtmosphere) {
+              skyAtmosphere.hueShift = -0.12;
+              skyAtmosphere.saturationShift = -0.18;
+              skyAtmosphere.brightnessShift = -0.16;
+            }
+            v.scene.fog.enabled = true;
+            v.scene.fog.density = 0.00025;
+            v.scene.fog.minimumBrightness = 0.22;
+          } else {
+            if (skyAtmosphere) {
+              skyAtmosphere.hueShift = -0.08;
+              skyAtmosphere.saturationShift = -0.32;
+              skyAtmosphere.brightnessShift = -0.08;
+            }
+            v.scene.fog.enabled = true;
+            v.scene.fog.density = 0.00065;
+            v.scene.fog.minimumBrightness = 0.72;
+          }
           const radius = 100_000;
+          const particleSize = Math.max(
+            8,
+            Math.min(18, v.scene.drawingBufferWidth / (kind === "rain" ? 120 : 160)),
+          );
           const gravity = new Cartesian3();
           const updateWeatherParticle: ParticleSystem.updateCallback = (
             particle,
@@ -256,27 +261,30 @@ export default function MapView({
           weatherSystem = new ParticleSystem({
             modelMatrix: Matrix4.fromTranslation(v.camera.positionWC),
             emitter: new SphereEmitter(radius),
-            image: weatherTexture,
-            emissionRate: kind === "rain" ? 900 : 700,
+            image:
+              kind === "rain"
+                ? "/weather/circular_particle.png"
+                : "/weather/snowflake_particle.png",
+            emissionRate: kind === "rain" ? 2300 : 1600,
             lifetime: Number.MAX_VALUE,
-            minimumParticleLife: kind === "rain" ? 1.2 : 3,
-            maximumParticleLife: kind === "rain" ? 2.8 : 6,
+            minimumParticleLife: kind === "rain" ? 1.5 : 4,
+            maximumParticleLife: kind === "rain" ? 3 : 7,
             minimumSpeed: -1,
             maximumSpeed: 0,
             startScale: kind === "rain" ? 1 : 0.7,
             endScale: kind === "rain" ? 0.4 : 1.2,
             startColor: kind === "rain"
-              ? new Color(0.62, 0.78, 0.98, 0.1)
-              : Color.WHITE.withAlpha(0.25),
+              ? new Color(0.72, 0.84, 1, 0.08)
+              : Color.WHITE.withAlpha(0.05),
             endColor: kind === "rain"
-              ? new Color(0.7, 0.84, 1, 0.8)
-              : Color.WHITE.withAlpha(0.95),
+              ? new Color(0.72, 0.84, 1, 0.72)
+              : Color.WHITE.withAlpha(0.88),
             minimumImageSize: kind === "rain"
-              ? new Cartesian2(4, 15)
-              : new Cartesian2(8, 8),
+              ? new Cartesian2(particleSize * 0.7, particleSize * 1.8)
+              : new Cartesian2(particleSize * 0.55, particleSize * 0.55),
             maximumImageSize: kind === "rain"
-              ? new Cartesian2(8, 28)
-              : new Cartesian2(20, 20),
+              ? new Cartesian2(particleSize, particleSize * 2.8)
+              : new Cartesian2(particleSize * 1.8, particleSize * 1.8),
             updateCallback: updateWeatherParticle,
           });
           v.scene.primitives.add(weatherSystem);

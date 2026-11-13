@@ -1,0 +1,8 @@
+天气粒子贴图来源
+
+- circular_particle.png：https://sandcastle.cesium.com/SampleData/circular_particle.png
+- snowflake_particle.png：https://sandcastle.cesium.com/SampleData/snowflake_particle.png
+- 配套实现参考 CesiumJS 官方 Particle System Weather Sandcastle 示例。
+- CesiumJS 与其示例代码采用 Apache License 2.0；许可证文本见 CesiumJS 项目 LICENSE.md。
+
+本项目只随包分发上述本地贴图，不在运行时请求 Cesium 或第三方 CDN。

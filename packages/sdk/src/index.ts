@@ -196,8 +196,8 @@ export interface CruiseController {
   stop(): void;
 }
 export interface MapFacade {
-  /** 在地图场景中启停 Cesium 天气粒子效果。 */
-  setEnvironment?(environment: "none" | "rain" | "snow"): void;
+  /** 在地图场景中切换 Cesium 雨、雪和雾效果。 */
+  setEnvironment?(environment: "none" | "rain" | "snow" | "fog"): void;
   showCruisePath?(points: import("@dtv/contracts").CruisePoint[]): () => void;
   showDeviceAlert?(device: { name: string; lon: number; lat: number; alert: string | null }): void;
   tilt?(): void;
