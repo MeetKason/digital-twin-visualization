@@ -19,10 +19,27 @@ import {
 import type { IncomingMessage } from "node:http";
 import { validateUpload, type Asset } from "@dtv/contracts";
 export const MAX_FILE_BYTES = 100 * 1024 * 1024;
+export const DEFAULT_SCENE_FILE_QUOTA_BYTES = 1024 * 1024 * 1024;
 type StoredFile = { id: string; name: string; size: number; type: string };
 export class FileStore {
   private uploading = 0;
-  constructor(private readonly root: string) {}
+  private readonly activeScopes = new Set<string>();
+  private readonly quotaBytes: number;
+  constructor(private readonly root: string, quotaBytes = Number(process.env.FILE_SCENE_QUOTA_BYTES ?? DEFAULT_SCENE_FILE_QUOTA_BYTES)) {
+    if (!Number.isSafeInteger(quotaBytes) || quotaBytes < 1)
+      throw new Error("FILE_SCENE_QUOTA_BYTES 必须是正安全整数");
+    this.quotaBytes = quotaBytes;
+  }
+  /** 同一场景只允许一个上传计入配额，防止并发请求同时越过容量检查。 */
+  private reserveScope(tenant: string, scene: string) {
+    const key = this.scope(tenant, scene);
+    if (this.activeScopes.has(key)) throw new HttpException("当前地区有文件正在上传，请稍后重试", 429);
+    this.activeScopes.add(key);
+    return () => this.activeScopes.delete(key);
+  }
+  private async usedBytes(tenant: string, scene: string) {
+    return (await this.list(tenant, scene)).reduce((sum, file) => sum + file.size, 0);
+  }
   private scope(tenant: string, scene: string) {
     return join(
       this.root,
@@ -81,11 +98,15 @@ export class FileStore {
       throw new BadRequestException("不支持的文件名或类型");
     if (this.uploading >= 2)
       throw new HttpException("上传繁忙，请稍后重试", 429);
+    const releaseScope = this.reserveScope(tenant, scene);
     this.uploading++;
     let temp: string | undefined;
     try {
       const dir = this.scope(tenant, scene);
       await mkdir(dir, { recursive: true, mode: 0o700 });
+      const used = await this.usedBytes(tenant, scene);
+      if (used + Number(req.headers["content-length"] || 0) > this.quotaBytes)
+        throw new PayloadTooLargeException("当前地区文件容量配额不足");
       temp = await mkdtemp(join(dir, ".upload-"));
       const handle = await open(join(temp, "content"), "wx", 0o600);
       let size = 0;
@@ -95,6 +116,8 @@ export class FileStore {
           size += bytes.length;
           if (size > MAX_FILE_BYTES)
             throw new PayloadTooLargeException("文件不得超过100MB");
+          if (used + size > this.quotaBytes)
+            throw new PayloadTooLargeException("当前地区文件容量配额不足");
           await handle.writeFile(bytes);
         }
       } finally {
@@ -117,6 +140,7 @@ export class FileStore {
       return meta;
     } finally {
       this.uploading--;
+      releaseScope();
       if (temp) await rm(temp, { recursive: true, force: true });
     }
   }
@@ -125,16 +149,24 @@ export class FileStore {
     if (!/^Mock-[^/\\]+\.(gltf|pdf|webm)$/.test(file.name) || file.size > 1024 * 1024)
       throw new BadRequestException("演示文件名称或大小无效");
     const type = await validateUpload(file);
+    const releaseScope = this.reserveScope(tenant, scene);
     const dir = this.scope(tenant, scene);
-    await mkdir(dir, { recursive: true, mode: 0o700 });
-    const temp = await mkdtemp(join(dir, ".upload-"));
+    let temp: string | undefined;
     try {
+      await mkdir(dir, { recursive: true, mode: 0o700 });
+      if ((await this.usedBytes(tenant, scene)) + file.size > this.quotaBytes)
+        throw new PayloadTooLargeException("当前地区文件容量配额不足");
+      temp = await mkdtemp(join(dir, ".upload-"));
       const meta: StoredFile = { id: `srv_${randomUUID()}`, name: file.name, size: file.size, type };
       await writeFile(join(temp, "content"), Buffer.from(await file.arrayBuffer()), { mode: 0o600 });
       await writeFile(join(temp, "meta.json"), JSON.stringify(meta), { mode: 0o600 });
       await rename(temp, this.path(tenant, scene, meta.id));
+      temp = undefined;
       return meta;
-    } finally { await rm(temp, { recursive: true, force: true }); }
+    } finally {
+      releaseScope();
+      if (temp) await rm(temp, { recursive: true, force: true });
+    }
   }
   async list(tenant: string, scene: string) {
     let ids: string[];

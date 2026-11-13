@@ -222,34 +222,33 @@ export default function MapView({
             v.scene.fog.density = 0.00065;
             v.scene.fog.minimumBrightness = 0.72;
           }
-          const radius = 100_000;
+          // 天气是贴近视点的视觉效果。原来的 100 公里发射球让多数粒子离镜头过远，
+          // 即使物理速度很高，屏幕上的下落仍几乎不可见。
+          const radius = kind === "rain" ? 95 : 70;
           const particleSize = Math.max(
             8,
             Math.min(18, v.scene.drawingBufferWidth / (kind === "rain" ? 120 : 160)),
           );
-          const gravity = new Cartesian3();
+          const fallDirection = new Cartesian3();
+          const windDirection = new Cartesian3();
           const updateWeatherParticle: ParticleSystem.updateCallback = (
             particle,
-            delta,
           ) => {
-            Cartesian3.normalize(particle.position, gravity);
+            // 每帧按米/秒指定速度；不累积随机加速度，避免帧率变化造成忽快忽慢。
+            Cartesian3.negate(
+              Cartesian3.normalize(particle.position, fallDirection),
+              fallDirection,
+            );
+            const speed = kind === "rain"
+              ? 25 + 5 * Math.sin(particle.position.x * 0.1)
+              : 2.4 + 0.7 * Math.sin(particle.position.x * 0.1);
+            Cartesian3.multiplyByScalar(fallDirection, speed, particle.velocity);
             Cartesian3.multiplyByScalar(
-              gravity,
-              kind === "rain"
-                ? -1050 * delta
-                : CesiumMath.randomBetween(-90, -30) * delta,
-              gravity,
+              v.camera.rightWC,
+              kind === "rain" ? 2.5 : 0.7 * Math.sin(particle.age * 1.4),
+              windDirection,
             );
-            particle.velocity = Cartesian3.add(
-              particle.velocity,
-              gravity,
-              particle.velocity,
-            );
-            if (kind === "snow") {
-              // 轻微水平漂移让雪花下落更自然，不改变底层观测数据。
-              particle.velocity.x += Math.sin(particle.age * 1.7) * 0.4 * delta;
-              particle.velocity.y += Math.cos(particle.age * 1.3) * 0.4 * delta;
-            }
+            Cartesian3.add(particle.velocity, windDirection, particle.velocity);
             const distance = Cartesian3.distance(
               v.camera.positionWC,
               particle.position,
@@ -265,11 +264,11 @@ export default function MapView({
               kind === "rain"
                 ? "/weather/circular_particle.png"
                 : "/weather/snowflake_particle.png",
-            emissionRate: kind === "rain" ? 2300 : 1600,
+            emissionRate: kind === "rain" ? 650 : 420,
             lifetime: Number.MAX_VALUE,
-            minimumParticleLife: kind === "rain" ? 1.5 : 4,
-            maximumParticleLife: kind === "rain" ? 3 : 7,
-            minimumSpeed: -1,
+            minimumParticleLife: kind === "rain" ? 2 : 6,
+            maximumParticleLife: kind === "rain" ? 3.5 : 10,
+            minimumSpeed: 0,
             maximumSpeed: 0,
             startScale: kind === "rain" ? 1 : 0.7,
             endScale: kind === "rain" ? 0.4 : 1.2,

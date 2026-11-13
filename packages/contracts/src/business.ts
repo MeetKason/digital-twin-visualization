@@ -353,6 +353,7 @@ const pointSchema = z.object({
   angle: z.number().optional(),
   flightHeight: z.number().optional(),
   curve: z.enum(["smooth", "linear"]).optional(),
+  view: viewSchema.optional(),
 });
 const businessSchema = z.object({
   version: z.literal(1),

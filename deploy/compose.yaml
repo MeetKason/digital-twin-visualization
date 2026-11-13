@@ -30,6 +30,7 @@ services:
       DTV_COMMIT: ${DTV_VERSION:-}
       HOST: "0.0.0.0"
       PORT: "3001"
+      FILE_SCENE_QUOTA_BYTES: ${FILE_SCENE_QUOTA_BYTES:-1073741824}
       DEPLOYMENT_MODE: ${DEPLOYMENT_MODE:-demo}
       PGHOST: postgres
       PGPORT: "5432"
