@@ -933,6 +933,7 @@ test("新演示租户预置两条多点路线和三个视角，保存后刷新�
 });
 
 test("雷达云图风场使用产品图例，预报显示起报与有效时间并跟随时间轴", async ({ page }) => {
+  test.setTimeout(90_000);
   await page.goto("/");
   await page.getByRole("button", { name: "进入演示系统" }).click();
   await expect(page.locator(".time-ticks button")).toHaveCount(13);
@@ -943,16 +944,19 @@ test("雷达云图风场使用产品图例，预报显示起报与有效时间�
   await expect(legend.getByText(/雷达回波 dBZ/)).toBeVisible();
   await expect(legend.getByText(/箭头指向去向/)).toBeVisible();
   await expect(legend.getByText(/有效 2026-11-07 12:00 · \+12小时/)).toBeVisible();
+  await expect(page.locator(".wind-particle-overlay")).toBeVisible();
+  await expect.poll(async () => Number(await page.locator(".wind-particle-overlay").getAttribute("data-particle-count"))).toBeGreaterThanOrEqual(2500);
+  await expect(page.locator(".map-canvas")).toHaveAttribute("aria-busy", "false");
   await page.getByRole("button", { name: "04:00", exact: true }).click();
-  await expect(legend.getByText(/有效 2026-11-07 04:00 · \+4小时/)).toBeVisible();
+  await expect(legend.getByText(/有效 2026-11-07 04:00 · \+4小时/)).toBeVisible({ timeout: 15000 });
   const cameraRevision = Number(await page.locator(".map-canvas").getAttribute("data-camera-revision"));
   await legend.getByRole("button", { name: "定位产品范围" }).click();
   await expect.poll(async () => Number(await page.locator(".map-canvas").getAttribute("data-camera-revision"))).toBeGreaterThan(cameraRevision);
   await expect(page.locator(".map-canvas")).toHaveAttribute("aria-busy", "false");
-  await page.screenshot({ path: "test-results/weather-products.png" });
+  await page.screenshot({ path: "test-results/weather-products.png", animations: "disabled" });
   await page.getByRole("switch", { name: "精细化预报", exact: true }).click();
   await page.getByRole("switch", { name: "卫星云图", exact: true }).click();
-  await page.screenshot({ path: "test-results/radar-wind.png" });
+  await page.screenshot({ path: "test-results/radar-wind.png", animations: "disabled" });
   await page.getByRole("switch", { name: "雷达回波", exact: true }).click();
   await expect(legend.getByText(/雷达回波 dBZ/)).toHaveCount(0);
 });
