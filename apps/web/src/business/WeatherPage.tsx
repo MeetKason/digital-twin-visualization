@@ -7,13 +7,15 @@ import type { Station } from "@dtv/contracts";
 import { beijingTime } from "../time";
 import { api } from "../api";
 import type { Business } from "./useBusiness";
-const topics = ["暴雨洪涝", "强对流", "低温雨雪冰冻", "山洪地质灾害"];
+const topics = ["暴雨洪涝", "强对流", "低温雨雪冰冻", "山洪地质灾害", "流场可视化"];
 const topicDescriptions = [
   "降水 / 水位 / 城区积水风险点",
   "雷达 / 闪电 / 短时强降水",
   "温度 / 道路结冰 / 低温提示",
   "雨量 / 监测站 / 地质风险区域",
+  "格子玻尔兹曼 / 示意白膜绕流",
 ];
+const FLOW_TOPIC = 4;
 const topicKeys: MockWeatherTopic[] = ["rainstorm", "convection", "cold-snow", "flash-flood"];
 export function WeatherPage({
   business,
@@ -45,7 +47,7 @@ export function WeatherPage({
     setFrames([]);
     setError("");
     // 无可用时次时展示缺数状态，避免发出空时次请求。
-    if (!time) {
+    if (!time || topic === FLOW_TOPIC) {
       setLoading(false);
       return () => ctrl.abort();
     }
@@ -78,12 +80,17 @@ export function WeatherPage({
     return () => ctrl.abort();
   }, [topic, sceneId, time, times, windowSize]);
   useEffect(() => {
-    if (!runtime) return;
-    void runtime.toggle(topic === 2 ? "temperature" : "rainfall", true);
+    if (!runtime || topic === FLOW_TOPIC) return;
+    const layer = topic === 2 ? "temperature" : "rainfall";
+    void runtime.toggle(layer, true);
     return () => {
-      void runtime.toggle(topic === 2 ? "temperature" : "rainfall", false);
+      void runtime.toggle(layer, false);
     };
   }, [runtime, topic]);
+  useEffect(() => {
+    map?.showFlowDemo?.(topic === FLOW_TOPIC);
+    return () => map?.showFlowDemo?.(false);
+  }, [map, topic]);
   // 将观测按站点编码关联，再由共享 Mock 规则生成带来源标签的提示。
   const latestFrame = frames.at(-1);
   const rows = business.data.stations.map((station) => {
@@ -181,7 +188,7 @@ export function WeatherPage({
         </div>
         <div className="panel-body">
           <p className="muted">选择专题 · 示例数据</p>
-          <div className="weather-analysis-controls">
+          {topic !== FLOW_TOPIC && <div className="weather-analysis-controls">
             <label>
               <span>分析范围</span>
               <Select
@@ -207,7 +214,7 @@ export function WeatherPage({
                 onChange={(value) => setWindowSize(value as 1 | 3 | 6)}
               />
             </label>
-          </div>
+          </div>}
           <Menu
             className="weather-topic-menu"
             aria-label="气象专题选择"
@@ -224,12 +231,16 @@ export function WeatherPage({
             }))}
           />
           <p className="data-disclaimer">
-            仅按页面展示的 Mock 阈值生成站点级提示，不生成正式风险范围或业务预警结论。
+            {topic === FLOW_TOPIC
+              ? "流场由浏览器实时求解，建筑是示意白膜。结果只用于演示绕流，不是实测风，也不能代替工程 CFD。"
+              : "仅按页面展示的 Mock 阈值生成站点级提示，不生成正式风险范围或业务预警结论。"}
           </p>
         </div>
       </UiCard>
       <div className="topic-map-heading panel">
-        {topics[topic]} · {scope === "city" ? "西安市全域" : "重点站点"} · {windowSize === 1 ? "当前时次" : `近 ${windowSize} 个时次`} · {beijingTime(time)}{" "}
+        {topic === FLOW_TOPIC
+          ? `流场可视化 · 示意白膜绕流 · ${beijingTime(time)}`
+          : `${topics[topic]} · ${scope === "city" ? "西安市全域" : "重点站点"} · ${windowSize === 1 ? "当前时次" : `近 ${windowSize} 个时次`} · ${beijingTime(time)}`}{" "}
         <span className="tag">Mock</span>
       </div>
       <UiCard className="topic-metrics panel" bordered styles={{ body: { padding: 0 } }}>
@@ -237,15 +248,23 @@ export function WeatherPage({
           <strong>专题指标</strong>
         </div>
         <div className="panel-body">
-          {[
-            [
-              topic === 2 ? "最低温度" : "最大小时降水",
-              `${statistic} ${topic === 2 ? "°C" : "mm"}`,
-            ],
-            ["关注站点", `${visibleRows.filter((r) => r.observation).length} 个`],
-            ["模拟影响站点", `${warnedRows.length} 个`],
-            ["模拟提示等级", warningLevel],
-          ].map(([name, value]) => (
+          {(topic === FLOW_TOPIC
+            ? [
+                ["来流风速", "8 m/s"],
+                ["求解方法", "D2Q9"],
+                ["白膜建筑", "4 栋"],
+                ["结果性质", "演示绕流"],
+              ]
+            : [
+                [
+                  topic === 2 ? "最低温度" : "最大小时降水",
+                  `${statistic} ${topic === 2 ? "°C" : "mm"}`,
+                ],
+                ["关注站点", `${visibleRows.filter((r) => r.observation).length} 个`],
+                ["模拟影响站点", `${warnedRows.length} 个`],
+                ["模拟提示等级", warningLevel],
+              ]
+          ).map(([name, value]) => (
             <div className="metric-block" key={name}>
               <span>{name}</span>
               <strong>{value}</strong>
@@ -256,11 +275,19 @@ export function WeatherPage({
       </UiCard>
       <section className="topic-table panel">
         <div className="panel-heading">
-          <strong>重点站点与预警列表</strong>
-          <span>Mock 阈值结果 · 非正式预警</span>
+          <strong>{topic === FLOW_TOPIC ? "流场说明" : "重点站点与预警列表"}</strong>
+          <span>{topic === FLOW_TOPIC ? "格子玻尔兹曼演示 · 非工程 CFD" : "Mock 阈值结果 · 非正式预警"}</span>
         </div>
-        {error && <Alert className="weather-data-alert" type="warning" showIcon message={`专题观测读取失败：${error}`} />}
-        <Table
+        {topic === FLOW_TOPIC && (
+          <Alert
+            className="weather-data-alert"
+            type="info"
+            showIcon
+            message="西侧来流 8 m/s，气流遇到示意白膜后绕行。窄缝里风速升高，建筑背风面形成低速尾流。这是街谷切片上的 D2Q9 格子玻尔兹曼演示，不是实测风场，也不能代替工程 CFD。"
+          />
+        )}
+        {error && topic !== FLOW_TOPIC && <Alert className="weather-data-alert" type="warning" showIcon message={`专题观测读取失败：${error}`} />}
+        {topic !== FLOW_TOPIC && <Table
           className="weather-table"
           loading={loading}
           tableLayout="fixed"
@@ -271,7 +298,7 @@ export function WeatherPage({
           columns={tableColumns}
           pagination={{ pageSize: 10, showSizeChanger: false, hideOnSinglePage: true, size: "small" }}
           scroll={{ x: 1050, y: "calc(clamp(240px, 34vh, 340px) - 130px)" }}
-        />
+        />}
       </section>
     </div>
   );

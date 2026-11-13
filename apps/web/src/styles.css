@@ -2580,7 +2580,57 @@ h3 {
   background: linear-gradient(90deg, #536475, #a2abb5, #fff);
 }
 .product-legend .legend-gradient.wind {
-  background: linear-gradient(90deg, #39c9ed, #ffc857, #ff7043);
+  height: 12px;
+  border-radius: 2px;
+  background: linear-gradient(
+    90deg,
+    #1878a4,
+    #1aa8c4,
+    #2ec8a4,
+    #6ed24a,
+    #b6dc3c,
+    #e6dc3a,
+    #f0d030,
+    #f4b42c,
+    #f59228,
+    #f07024,
+    #e85428,
+    #e03828,
+    #d02424,
+    #c01820,
+    #a8141c,
+    #8c1018
+  );
+}
+.product-legend.has-wind {
+  width: min(560px, calc(100% - 28px));
+}
+.legend-ticks {
+  display: flex;
+  justify-content: space-between;
+  gap: 2px;
+  margin-top: 2px;
+  color: #52687d;
+  font-size: 9px;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.2;
+}
+.wind-field-title {
+  position: absolute;
+  top: 64px;
+  left: 50%;
+  z-index: 5;
+  transform: translateX(-50%);
+  padding: 8px 18px;
+  border-radius: 6px;
+  background: #2f86e0;
+  color: #fff;
+  font-size: 14px;
+  line-height: 1.45;
+  text-align: center;
+  white-space: nowrap;
+  pointer-events: none;
+  box-shadow: 0 2px 8px #0b3a6a33;
 }
 .forecast-validity {
   margin: 4px 0 0;

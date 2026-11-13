@@ -1,8 +1,10 @@
 import {
+  rasterizeGridAnalysis,
   rasterizeObservationField,
   rasterizeWeather,
 } from "./weatherRendering";
 import { createWindParticleOverlay } from "./windParticles";
+import { createFlowDemo } from "./flowDemo";
 import { createWeatherPostProcess } from "./weatherPostProcess";
 import { ImageryRecovery } from "./imageryRecovery";
 import { UiButton } from "./ui/controls";
@@ -156,6 +158,7 @@ export default function MapView({
       null;
     let restorePickCursor: (() => void) | null = null;
     let stopCruise: (() => void) | null = null;
+    let stopFlowDemo: (() => void) | null = null;
     let drawingSource: CustomDataSource | undefined;
     // Cesium 与本地运行配置异步初始化；未完成前卸载时不再创建浏览器资源。
     const initialize = async () => {
@@ -741,6 +744,31 @@ export default function MapView({
                 },
               });
             }
+          } else if (id === "grid" && frame?.gridCells?.length) {
+            const polygons = await loadBoundaryPolygons();
+            if (signal.aborted || disposed) throw new Error("加载已取消");
+            if (!polygons?.length) throw new Error("当前场景未配置行政边界，无法显示完整范围网格");
+            const bounds = administrativeBounds(polygons);
+            const raster = rasterizeGridAnalysis(frame.gridCells, bounds, palette);
+            if (raster) {
+              rasterCanvas = document.createElement("canvas");
+              rasterCanvas.width = raster.width;
+              rasterCanvas.height = raster.height;
+              const context = rasterCanvas.getContext("2d");
+              if (!context) throw new Error("浏览器无法创建气象栅格画布");
+              const pixels = context.createImageData(raster.width, raster.height);
+              pixels.data.set(raster.pixels);
+              context.putImageData(pixels, 0, 0);
+              clipRasterToBoundary(rasterCanvas, raster.bounds, polygons);
+              source.entities.add({
+                id: `${id}-raster`,
+                rectangle: {
+                  coordinates: Rectangle.fromDegrees(...raster.bounds),
+                  material: new ImageMaterialProperty({ image: rasterCanvas, transparent: true }),
+                  heightReference: HeightReference.CLAMP_TO_GROUND,
+                },
+              });
+            }
           } else if (id === "wind") {
             // 演示格点只在中心区有值，视觉风场可插值铺满区划；真实源严格使用原始覆盖范围。
             const windPolygons = frame?.source === "mock" ? await loadBoundaryPolygons() : null;
@@ -1295,6 +1323,12 @@ export default function MapView({
               stop,
             };
           },
+          showFlowDemo: (enabled) => {
+            stopFlowDemo?.();
+            stopFlowDemo = null;
+            if (!enabled || !container.current || disposed) return;
+            stopFlowDemo = createFlowDemo(v, container.current, scene.center).dispose;
+          },
           flyTo: (lon, lat, height = scene.height * 0.65) =>
             v.camera.flyTo({
               destination: Cartesian3.fromDegrees(lon, lat, height),
@@ -1444,6 +1478,7 @@ export default function MapView({
       }
       stopCruise?.();
       stopWeather?.();
+      stopFlowDemo?.();
       runtime?.dispose();
       runtimeRef.current = null;
       viewerRef.current = null;

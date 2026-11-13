@@ -126,6 +126,60 @@ export function rasterizeWeather(
   return { pixels, bounds, width, height };
 }
 
+/** 将综合网格样本插值铺满行政区包围范围，随后由地图端按区划多边形裁去区外像素。 */
+export function rasterizeGridAnalysis(
+  cells: WeatherGridCell[],
+  bounds: [number, number, number, number],
+  palette: string[],
+  width = 512,
+  height = 384,
+  valueRange = 100,
+) {
+  const samples = cells.flatMap((cell) => {
+    const [west, south, east, north] = cell.bounds;
+    if (
+      !Number.isFinite(cell.value) ||
+      !cell.bounds.every(Number.isFinite) ||
+      west >= east ||
+      south >= north
+    )
+      return [];
+    return [{ lon: (west + east) / 2, lat: (south + north) / 2, value: cell.value }];
+  });
+  if (!samples.length || !palette.length || width < 1 || height < 1 || valueRange <= 0) return null;
+
+  const colors = palette.map(parseHexColor);
+  const pixels = new Uint8ClampedArray(width * height * 4);
+  const longitudeScale = Math.cos((((bounds[1] + bounds[3]) / 2) * Math.PI) / 180);
+  for (let row = 0; row < height; row++) {
+    const lat = bounds[3] - ((row + 0.5) / height) * (bounds[3] - bounds[1]);
+    for (let column = 0; column < width; column++) {
+      const lon = bounds[0] + ((column + 0.5) / width) * (bounds[2] - bounds[0]);
+      let numerator = 0;
+      let denominator = 0;
+      let exact: number | undefined;
+      for (const sample of samples) {
+        const dx = (sample.lon - lon) * longitudeScale;
+        const dy = sample.lat - lat;
+        const distanceSquared = dx * dx + dy * dy;
+        if (distanceSquared < 1e-10) {
+          exact = sample.value;
+          break;
+        }
+        const weight = 1 / Math.pow(distanceSquared, 1.15);
+        numerator += sample.value * weight;
+        denominator += weight;
+      }
+      const value = Math.max(0, Math.min(valueRange, exact ?? numerator / denominator));
+      const bucket = Math.min(colors.length - 1, Math.floor((value / valueRange) * colors.length));
+      const alpha = 0.4 + Math.min(1, value / valueRange) * 0.42;
+      const [red, green, blue] = colors[bucket];
+      pixels.set([red, green, blue, Math.round(alpha * 255)], (row * width + column) * 4);
+    }
+  }
+  return { pixels, bounds, width, height };
+}
+
 const temperatureStops: Array<[number, string]> = [
   [-40, "#3454a4"],
   [-20, "#3d9fef"],
@@ -253,6 +307,45 @@ export function rasterizeObservationField(
     }
   }
   return { pixels, bounds, width, height };
+}
+
+/** 风速色标与图例一致：低风速青，中风速黄，30 m/s 及以上为红。 */
+export const windSpeedStops: Array<[number, string]> = [
+  [0, "#1878a4"],
+  [2, "#1aa8c4"],
+  [4, "#2ec8a4"],
+  [6, "#6ed24a"],
+  [8, "#b6dc3c"],
+  [10, "#e6dc3a"],
+  [12, "#f0d030"],
+  [14, "#f4b42c"],
+  [16, "#f59228"],
+  [18, "#f07024"],
+  [20, "#e85428"],
+  [22, "#e03828"],
+  [24, "#d02424"],
+  [26, "#c01820"],
+  [28, "#a8141c"],
+  [30, "#8c1018"],
+];
+
+/** 将风速映射到色标；超出 0–30 的值停在两端，不另造颜色。 */
+export function windSpeedRgb(speed: number): [number, number, number] {
+  const value = Number.isFinite(speed) ? Math.max(0, speed) : 0;
+  const matching = windSpeedStops.findIndex(([stop]) => stop >= value);
+  const upperIndex =
+    matching < 0 ? windSpeedStops.length - 1 : Math.max(1, matching);
+  const upper = windSpeedStops[upperIndex];
+  const lower = windSpeedStops[upperIndex - 1];
+  const fraction = Math.max(
+    0,
+    Math.min(1, (Math.min(value, 30) - lower[0]) / Math.max(0.001, upper[0] - lower[0])),
+  );
+  const start = parseHexColor(lower[1]);
+  const end = parseHexColor(upper[1]);
+  return [0, 1, 2].map((index) =>
+    Math.round(start[index] + (end[index] - start[index]) * fraction),
+  ) as [number, number, number];
 }
 
 /** 风场方向转为气流去向，供图例或低性能模式展示方向箭头。 */

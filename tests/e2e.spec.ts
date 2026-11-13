@@ -841,6 +841,9 @@ test("专题与设备使用Ant表格并在窄屏保持表头和滚动区可见",
     await expect(page.getByRole("menuitem", { name: /04.*山洪地质灾害/ })).toBeVisible();
     await page.screenshot({ path: `test-results/weather-layout-${viewport.width}.png` });
   }
+  await page.getByRole("menuitem", { name: /05.*流场可视化/ }).click();
+  await expect(page.locator(".topic-map-heading")).toContainText("示意白膜绕流");
+  await expect(page.getByText("不是实测风场，也不能代替工程 CFD")).toBeVisible();
   await page.locator(".side-navigation").getByRole("button", { name: "设备监控" }).click();
   await expect(page.locator(".device-table .ant-table-tbody tr[data-row-key]").first()).toBeVisible();
   await expect(page.getByRole("columnheader", { name: "最近心跳" })).toBeVisible();

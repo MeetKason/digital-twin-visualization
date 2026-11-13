@@ -729,6 +729,7 @@ function WorkArea({
           frames={frames}
           time={time}
           hidden={activeMenu !== "home"}
+          sceneName={scene.name}
           onLocate={() => map?.flyTo(...scene.center, scene.height * 0.65)}
         />
         <div hidden={activeMenu !== "home"}>

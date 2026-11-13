@@ -228,6 +228,8 @@ export interface MapFacade {
     scale: number,
     heading: number,
   ): () => void;
+  /** 在当前场景中心开关街谷流场演示。关闭时移除白膜和粒子。 */
+  showFlowDemo?(enabled: boolean): void;
 }
 
 export * from "./extensions";
