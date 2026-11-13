@@ -1,5 +1,5 @@
 import { expect, test } from "vitest";
-import { createLatticeFlow, demoFlowFootprints, sampleLattice } from "../apps/web/src/flowLattice";
+import { createLatticeFlow, demoFlowFootprints, flowVolumeMeters, sampleLattice } from "../apps/web/src/flowLattice";
 
 test("白膜格点保持静风，来流把开阔通道推向下游且不发散", () => {
   const solver = createLatticeFlow(72, 48, demoFlowFootprints, 0.06);
@@ -22,4 +22,16 @@ test("街谷缝隙的风速高于建筑正下游的尾流", () => {
   expect(canyon.solid).toBe(false);
   expect(wake.solid).toBe(false);
   expect(canyon.speed).toBeGreaterThan(wake.speed);
+});
+
+test("体渲染在白膜内部留空，楼顶和街谷仍有风速", () => {
+  const solver = createLatticeFlow(80, 56, demoFlowFootprints, 0.06);
+  for (let step = 0; step < 360; step++) solver.step();
+  expect(flowVolumeMeters(solver.flow, 0.3, 0.45, 20)).toBe(0);
+  expect(flowVolumeMeters(solver.flow, 0.3, 0.45, 90)).toBeGreaterThan(0.5);
+  expect(flowVolumeMeters(solver.flow, 0.55, 0.52, 24)).toBeGreaterThan(
+    flowVolumeMeters(solver.flow, 0.43, 0.46, 24),
+  );
+  expect(flowVolumeMeters(solver.flow, 0.5, 0.02, 40)).toBe(0);
+  expect(flowVolumeMeters(solver.flow, 0.12, 0.5, 400)).toBe(0);
 });

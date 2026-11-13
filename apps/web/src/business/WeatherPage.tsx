@@ -13,7 +13,7 @@ const topicDescriptions = [
   "雷达 / 闪电 / 短时强降水",
   "温度 / 道路结冰 / 低温提示",
   "雨量 / 监测站 / 地质风险区域",
-  "格子玻尔兹曼 / 示意白膜绕流",
+  "体渲染 / 示意白膜绕流",
 ];
 const FLOW_TOPIC = 4;
 const topicKeys: MockWeatherTopic[] = ["rainstorm", "convection", "cold-snow", "flash-flood"];
@@ -232,7 +232,7 @@ export function WeatherPage({
           />
           <p className="data-disclaimer">
             {topic === FLOW_TOPIC
-              ? "流场由浏览器实时求解，建筑是示意白膜。结果只用于演示绕流，不是实测风，也不能代替工程 CFD。"
+              ? "风速用体渲染叠在示意白膜上。求解是浏览器里的街谷切片，不是实测风，也不能代替工程 CFD。"
               : "仅按页面展示的 Mock 阈值生成站点级提示，不生成正式风险范围或业务预警结论。"}
           </p>
         </div>
@@ -253,7 +253,7 @@ export function WeatherPage({
                 ["来流风速", "8 m/s"],
                 ["求解方法", "D2Q9"],
                 ["白膜建筑", "4 栋"],
-                ["结果性质", "演示绕流"],
+                ["结果性质", "体渲染"],
               ]
             : [
                 [
@@ -283,7 +283,7 @@ export function WeatherPage({
             className="weather-data-alert"
             type="info"
             showIcon
-            message="西侧来流 8 m/s，气流遇到示意白膜后绕行。窄缝里风速升高，建筑背风面形成低速尾流。这是街谷切片上的 D2Q9 格子玻尔兹曼演示，不是实测风场，也不能代替工程 CFD。"
+            message="西侧来流 8 m/s。体渲染叠在示意白膜周围：窄缝更快，背风面更慢，楼顶有一层更快的气流。颜色从青绿色到红色表示风速升高。求解仍是街谷上的 D2Q9 切片，不是实测风场，也不能代替工程 CFD。"
           />
         )}
         {error && topic !== FLOW_TOPIC && <Alert className="weather-data-alert" type="warning" showIcon message={`专题观测读取失败：${error}`} />}

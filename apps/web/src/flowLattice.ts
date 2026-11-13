@@ -156,6 +156,40 @@ export function createLatticeFlow(
   return { flow, step };
 }
 
+/** Vertical extent of the rendered volume, in meters above the ground. */
+export const FLOW_VOLUME_CEILING_M = 220;
+
+/**
+ * Display speed for one voxel, in m/s.
+ * The lattice is a street-level slice; height only shapes the volume.
+ */
+export function flowVolumeMeters(
+  flow: LatticeFlow,
+  x: number,
+  y: number,
+  heightM: number,
+  footprints: FlowFootprint[] = demoFlowFootprints,
+): number {
+  if (heightM <= 0 || heightM >= FLOW_VOLUME_CEILING_M) return 0;
+  if (y < 0.04 || y > 0.96 || x > 0.98) return 0;
+  const roof =
+    footprints.find((block) => x >= block.x0 && x <= block.x1 && y >= block.y0 && y <= block.y1)?.heightM ?? 0;
+  if (heightM < roof) return 0;
+  const sample = sampleLattice(flow, x, y);
+  const street = sample.solid ? 0 : (sample.speed / Math.max(flow.inlet, 1e-6)) * 8;
+  const column = Math.sin(Math.PI * Math.min(1, heightM / 170));
+  let meters = street * (0.78 + 0.22 * column);
+  if (roof > 0) {
+    const clearance = heightM - roof;
+    if (clearance < 24) {
+      const jet = 1 - clearance / 24;
+      meters = Math.max(meters, (5 + 6 * jet) * (0.4 + 0.6 * jet));
+    }
+  }
+  if (heightM > 175) meters *= (FLOW_VOLUME_CEILING_M - heightM) / (FLOW_VOLUME_CEILING_M - 175);
+  return meters;
+}
+
 /** Sample the solved field. Coordinates are normalized across the demo box. */
 export function sampleLattice(flow: LatticeFlow, x: number, y: number) {
   const column = Math.max(0, Math.min(flow.width - 1, Math.floor(x * flow.width)));
